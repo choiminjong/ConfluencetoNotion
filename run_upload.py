@@ -130,6 +130,24 @@ class UploadRunner:
 
         uploader.run()
 
+        self.print_error_summary()
+
+    def print_error_summary(self) -> None:
+        """업로드 에러 리포트가 있으면 요약을 출력한다."""
+        error_file = self.target_dir / "upload_errors.json"
+        if not error_file or not error_file.exists():
+            return
+        report = json.loads(error_file.read_text(encoding="utf-8"))
+        failed = report.get("failed", 0)
+        total = report.get("total_pages", 0)
+        success = report.get("success", 0)
+        if failed == 0:
+            return
+        print(f"\n{'=' * 50}")
+        print(f"  업로드 결과: {total}개 중 {success}개 성공, {failed}개 실패")
+        print(f"  에러 리포트: {error_file}")
+        print(f"{'=' * 50}")
+
 
 if __name__ == "__main__":
     UploadRunner().run()

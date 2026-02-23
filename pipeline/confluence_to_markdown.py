@@ -2,109 +2,33 @@
 
 import json
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import cast
 from urllib.parse import unquote
 
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8")
+
 from atlassian import Confluence as ConfluenceClient
-from bs4 import Tag
-from tabulate import tabulate
 
 import confluence_markdown_exporter.api_clients as _api
 from confluence_markdown_exporter.utils.app_data_store import set_setting
-from confluence_markdown_exporter.utils.table_converter import pad
 
-
-class TableOverride:
-    """테이블 HTML -> Markdown 변환 오버라이드.
-
-    중첩 테이블은 HTML 유지, 이미지는 텍스트 링크로 대체 후 하단에 배치한다.
-    """
-
-    BLOCK_TAGS = frozenset({
-        "p", "h1", "h2", "h3", "h4", "h5", "h6",
-        "div", "ul", "ol", "blockquote", "pre",
-    })
-
-    def __init__(self, converter, el):
-        self.converter = converter
-        self.el = el
-
-    def extract_images(self) -> list[str]:
-        """이미지를 텍스트 링크로 대체하고, 하단 배치용 마크다운 목록을 반환한다."""
-        extracted: list[str] = []
-        for img in self.el.find_all("img"):
-            src = img.get("data-image-src") or img.get("src") or ""
-            alt = img.get("alt") or ""
-            raw_name = unquote(src.rsplit("/", 1)[-1]) if src else alt or "image"
-            filename = raw_name.split("?")[0]
-            img.replace_with(f"📎 {filename}")
-            extracted.append(f"**📎 {filename}**\n\n![{alt}]({src})")
-        return extracted
-
-    def cell_to_text(self, cell: Tag) -> str:
-        """단일 셀을 마크다운 텍스트로 변환한다."""
-        block_children = [
-            child for child in cell.children
-            if isinstance(child, Tag) and child.name in self.BLOCK_TAGS
-        ]
-        if len(block_children) > 1:
-            parts = []
-            for child in block_children:
-                md = self.converter.convert(str(child)).strip()
-                md = re.sub(r"^#{1,6}\s+", "", md)
-                md = md.replace("\n", "<br>")
-                if md:
-                    parts.append(md)
-            result = "<br>".join(parts)
-        else:
-            inner_html = cell.decode_contents()
-            result = self.converter.convert(inner_html).strip()
-            result = re.sub(r"^#{1,6}\s+", "", result)
-            result = re.sub(r"\n+", "<br>", result)
-        result = result.replace("****", "**<br>**")
-        return result
-
-    def convert(self) -> str:
-        """테이블 전체를 마크다운으로 변환한다."""
-        if self.el.find("table"):
-            return "\n\n" + str(self.el) + "\n\n"
-
-        extracted_images = self.extract_images()
-
-        rows = [
-            cast("list[Tag]", tr.find_all(["td", "th"]))
-            for tr in cast("list[Tag]", self.el.find_all("tr"))
-            if tr
-        ]
-        if not rows:
-            return ""
-
-        padded_rows = pad(rows)
-        converted = [[self.cell_to_text(cell) for cell in row] for row in padded_rows]
-
-        has_header = all(cell.name == "th" for cell in rows[0])
-        if has_header:
-            result = "\n\n" + tabulate(converted[1:], headers=converted[0], tablefmt="pipe") + "\n\n"
-        else:
-            result = "\n\n" + tabulate(converted, headers=[""] * len(converted[0]), tablefmt="pipe") + "\n\n"
-
-        if extracted_images:
-            result += "\n\n".join(extracted_images) + "\n\n"
-
-        return result
-
-
-def _convert_table_custom(self, el, text, parent_tags):
-    return TableOverride(self, el).convert()
+from pipeline.converter_overrides import (
+    apply_overrides,
+    replace_emoticon_markdown,
+    reset_unsupported_macros,
+    unsupported_macros,
+)
 
 
 class ConfluenceExporter:
     """Confluence 페이지를 Markdown + 첨부파일 + meta.json 폴더 구조로 변환한다."""
 
     def __init__(self, url: str, pat: str, output_dir: str, page_ids: list[int],
-                 include_descendants: bool = False, download_all_attachments: bool = False):
+                 include_descendants: bool = False, download_all_attachments: bool = False,
+                 include_document_title: bool = True, page_breadcrumbs: bool = False):
         self.url = url.rstrip("/")
         self.client = ConfluenceClient(url=url, token=pat)
         self.output_dir = Path(output_dir)
@@ -112,13 +36,21 @@ class ConfluenceExporter:
         self.include_descendants = include_descendants
         self.download_all_attachments = download_all_attachments
         self.exported: dict[int, dict] = {}
+        self.skipped_parents: dict[int, int | None] = {}
+        self.errors: list[dict] = []
 
         _api.get_confluence_instance = lambda: self.client
-        set_setting("export.page_breadcrumbs", False)
+        set_setting("export.page_breadcrumbs", page_breadcrumbs)
+        set_setting("export.include_document_title", include_document_title)
 
         from confluence_markdown_exporter.confluence import Page
         self.Page = Page
-        self.Page.Converter.convert_table = _convert_table_custom
+        apply_overrides(self.Page.Converter)
+
+    _VIDEO_LINK_RE = re.compile(
+        r"\[([^\]]+\.(?:mp4|webm|mov|avi|wmv|mkv))\]\([^)]+\)",
+        re.IGNORECASE,
+    )
 
     def rewrite_image_paths(self, markdown: str) -> str:
         """Confluence Server URL 형식의 이미지 경로를 로컬 파일명으로 치환한다."""
@@ -128,13 +60,92 @@ class ConfluenceExporter:
             markdown,
         )
 
+    def rewrite_video_paths(self, markdown: str) -> str:
+        """비디오 링크의 깨진 상대경로를 파일명으로 교체한다.
+
+        `[name.mp4](..\\..\\attachments\\.mp4)` -> `[name.mp4](name.mp4)`
+        """
+        def _replace(m: re.Match) -> str:
+            filename = m.group(1)
+            return f"[{filename}]({filename})"
+
+        return self._VIDEO_LINK_RE.sub(_replace, markdown)
+
+    def inject_tab_children(self, page_id: int, markdown: str) -> str:
+        """TAB_CHILDREN 플레이스홀더를 실제 하위 페이지 이름으로 교체하고 blockquote를 정리한다."""
+        if "<!-- TAB_CHILDREN:" not in markdown:
+            return markdown
+
+        category_map: dict[str, list[str]] = {}
+        for child_id in self.get_child_page_ids(page_id):
+            child = self.client.get_page_by_id(child_id)
+            cat_title = child["title"]
+            grandchildren = []
+            for gc_id in self.get_child_page_ids(child_id):
+                gc = self.client.get_page_by_id(gc_id)
+                grandchildren.append(gc["title"])
+            category_map[cat_title] = grandchildren
+
+        for cat_title, names in category_map.items():
+            placeholder = f"<!-- TAB_CHILDREN:{cat_title} -->"
+            if names:
+                bullet_list = "\n".join(f"- {n}" for n in names)
+            else:
+                bullet_list = "- (하위 페이지 없음)"
+            markdown = markdown.replace(placeholder, bullet_list)
+
+        markdown = re.sub(r"<!-- TAB_CHILDREN:[^>]+ -->", "- (하위 페이지 참조)", markdown)
+        markdown = self._clean_tabs_blockquote(markdown)
+        return markdown
+
+    @staticmethod
+    def _clean_tabs_blockquote(markdown: str) -> str:
+        """blockquote 안의 <details> 블록을 최상위로 추출한다.
+
+        Confluence panel 매크로가 blockquote로 변환되면서
+        <details> 블록이 > 접두사에 감싸이는 문제를 해결한다.
+        """
+        lines = markdown.split("\n")
+        result: list[str] = []
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            if (
+                line.strip() in ("> [!NOTE]", "> [!TIP]", "> [!WARNING]")
+                and i + 1 < len(lines)
+                and "<details>" in lines[i + 1]
+            ):
+                i += 1
+                while i < len(lines):
+                    ln = lines[i]
+                    if ln.startswith("> "):
+                        result.append(ln[2:])
+                    elif ln.strip() == ">":
+                        result.append("")
+                    elif ln.startswith(">"):
+                        result.append(ln[1:])
+                    else:
+                        result.append(ln)
+                    if not ln.startswith(">") and not ln.strip().startswith("-") and ln.strip() == "":
+                        peek = i + 1
+                        if peek >= len(lines) or not lines[peek].startswith(">"):
+                            i += 1
+                            break
+                    i += 1
+            else:
+                result.append(line)
+                i += 1
+        return "\n".join(result)
+
     def extract_referenced_files(self, markdown: str) -> set[str]:
-        """마크다운에서 참조하는 로컬 파일명 목록을 추출한다."""
+        """마크다운에서 참조하는 로컬 파일명(이미지 + 비디오) 목록을 추출한다."""
         refs: set[str] = set()
         for m in re.finditer(r"!\[[^\]]*\]\(([^)]+)\)", markdown):
             src = m.group(1)
             if not src.startswith(("http://", "https://")):
                 refs.add(unquote(src))
+        for m in self._VIDEO_LINK_RE.finditer(markdown):
+            refs.add(m.group(1))
         return refs
 
     def download_attachments(self, page, page_dir: Path, referenced: set[str] | None = None) -> list[str]:
@@ -167,10 +178,21 @@ class ConfluenceExporter:
             print(f"  SKIP: {page_id} (접근 불가)")
             return None
 
+        self.Page.Converter._current_page_id = page_id
+        markdown = self.rewrite_image_paths(page.markdown)
+        markdown = self.rewrite_video_paths(markdown)
+        markdown = replace_emoticon_markdown(markdown)
+        markdown = self.inject_tab_children(page_id, markdown)
+
+        if len(markdown.strip()) < 10:
+            print(f"  SKIP: '{page.title}' (빈 컨테이너 페이지)")
+            parent_id = raw_ancestors[-1]["id"] if raw_ancestors else None
+            self.skipped_parents[page_id] = int(parent_id) if parent_id else None
+            return None
+
         page_dir = self.output_dir / str(page_id)
         page_dir.mkdir(parents=True, exist_ok=True)
 
-        markdown = self.rewrite_image_paths(page.markdown)
         (page_dir / "confluence.md").write_text(markdown, encoding="utf-8")
 
         referenced = None if self.download_all_attachments else self.extract_referenced_files(markdown)
@@ -247,8 +269,29 @@ class ConfluenceExporter:
         )
         return all_ids
 
+    def _resolve_parent(self, parent_id: int | None) -> int | None:
+        """SKIP된 부모를 건너뛰고 가장 가까운 내보낸 조상 ID를 반환한다."""
+        visited: set[int] = set()
+        while parent_id is not None and parent_id not in self.exported:
+            if parent_id in visited:
+                return None
+            visited.add(parent_id)
+            parent_id = self.skipped_parents.get(parent_id)
+        return parent_id
+
     def update_children(self) -> None:
-        """각 meta.json 의 children 필드를 채우고 파일을 갱신한다."""
+        """각 meta.json 의 children 필드를 채우고 파일을 갱신한다.
+
+        SKIP된 컨테이너 페이지의 자식은 가장 가까운 내보낸 조상에 연결한다.
+        """
+        for page_id, meta in self.exported.items():
+            meta["parent_id"] = self._resolve_parent(meta.get("parent_id"))
+            meta_path = self.output_dir / str(page_id) / "meta.json"
+            meta_path.write_text(
+                json.dumps(meta, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+
         for page_id, meta in self.exported.items():
             meta["children"] = [
                 pid
@@ -299,8 +342,51 @@ class ConfluenceExporter:
         )
         print(f"Index: {index_path}")
 
+    def _save_error_report(self) -> None:
+        """수집된 에러를 convert_errors.json 으로 저장한다."""
+        report = {
+            "run_dir": str(self.output_dir),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "total_pages": len(self.exported) + len(self.errors),
+            "success": len(self.exported),
+            "failed": len(self.errors),
+            "errors": self.errors,
+        }
+        path = self.output_dir / "convert_errors.json"
+        path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _save_unsupported_macros_report(self) -> None:
+        """미지원 매크로를 unsupported_macros.json 으로 저장한다."""
+        if not unsupported_macros:
+            return
+
+        grouped: dict[str, list[str]] = {}
+        for entry in unsupported_macros:
+            name = entry["macro_name"]
+            pid = entry["page_id"]
+            grouped.setdefault(name, [])
+            if pid not in grouped[name]:
+                grouped[name].append(pid)
+
+        report = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "total_unique_macros": len(grouped),
+            "macros": [
+                {"macro_name": name, "pages": pages}
+                for name, pages in sorted(grouped.items())
+            ],
+        }
+        path = self.output_dir / "unsupported_macros.json"
+        path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        print(f"\n  미지원 매크로 {len(grouped)}종 감지 → {path}")
+        for name, pages in sorted(grouped.items()):
+            print(f"    - {name} ({len(pages)}개 페이지)")
+
     def export_pages(self) -> None:
         """전체 실행: 페이지 수집 → 변환 → children 갱신 → index.json 생성."""
+        reset_unsupported_macros()
+
         print(f"URL: {self.url}")
         print(f"Pages: {self.page_ids}")
         print(f"Include descendants: {self.include_descendants}\n")
@@ -313,11 +399,23 @@ class ConfluenceExporter:
             try:
                 self.export_page(pid)
             except Exception as e:
+                self.errors.append({
+                    "page_id": str(pid),
+                    "title": self.exported.get(pid, {}).get("title", ""),
+                    "step": "convert_html_to_md",
+                    "error_type": type(e).__name__,
+                    "message": str(e),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                })
                 print(f"  ERROR: {e}")
             print()
 
         self.update_children()
         self.write_index_json()
+
+        self._save_error_report()
+        self._save_unsupported_macros_report()
+
         print(f"Done. {len(self.exported)} pages exported to {self.output_dir}")
 
 

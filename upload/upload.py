@@ -4,14 +4,16 @@
     uv run python run_upload.py
 """
 
-import copy
 import json
 import mimetypes
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
+
+from upload.block_utils import filter_invalid_media, sanitize_blocks, transform_blocks
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
@@ -21,7 +23,7 @@ class NotionUploader:
     """output 폴더의 notion.json + 이미지를 Notion DB에 업로드한다."""
 
     MAX_BLOCKS_PER_REQUEST = 100
-    REQUEST_INTERVAL = 0.35
+    REQUEST_INTERVAL = 0.20
     REQUIRED_PROPERTIES = {
         "Space": {"rich_text": {}},
         "Updated": {"date": {}},
@@ -79,6 +81,7 @@ class NotionUploader:
         print(f"Target: {self.target_dir}\n")
 
         uploaded = 0
+        errors: list[dict] = []
         queue: list[tuple[dict, str]] = [(node, "") for node in tree]
 
         while queue:
@@ -93,13 +96,37 @@ class NotionUploader:
                 if result:
                     uploaded += 1
             except Exception as e:
+                errors.append({
+                    "page_id": str(page_id),
+                    "title": title,
+                    "step": "upload",
+                    "error_type": type(e).__name__,
+                    "message": str(e),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                })
                 print(f"  ERROR: {e}")
             print()
 
             for child in node.get("children", []):
                 queue.append((child, title))
 
+        if errors:
+            self._save_error_report(errors, total, uploaded)
+
         print(f"Done. {uploaded}/{total} pages uploaded to Notion DB.")
+
+    def _save_error_report(self, errors: list[dict], total: int, success: int) -> None:
+        """업로드 에러를 upload_errors.json 으로 저장한다."""
+        report = {
+            "run_dir": str(self.target_dir),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "total_pages": total,
+            "success": success,
+            "failed": len(errors),
+            "errors": errors,
+        }
+        path = self.target_dir / "upload_errors.json"
+        path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # ------------------------------------------------------------------
     # API
@@ -126,8 +153,14 @@ class NotionUploader:
         self._check_response(resp)
         return resp
 
+    FATAL_STATUS_CODES = {401, 403, 404}
+
     def _check_response(self, resp: requests.Response) -> None:
-        """HTTP 응답을 확인하고, 에러 시 안내 메시지를 출력 후 종료한다."""
+        """HTTP 응답을 확인하고, 에러 시 예외를 발생시킨다.
+
+        401/403/404 같은 치명적 에러는 sys.exit 으로 즉시 종료하고,
+        그 외 에러(400 등)는 RuntimeError 를 발생시켜 페이지 단위 에러 수집이 가능하게 한다.
+        """
         if resp.ok:
             return
 
@@ -135,15 +168,21 @@ class NotionUploader:
         msg = self.ERROR_MESSAGES.get(code)
 
         if msg:
-            print(f"\nERROR [{code}]: {msg}")
+            detail = f"[{code}]: {msg}"
         elif code == 400:
             body = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
-            print(f"\nERROR [400 Bad Request]: {body.get('message', resp.text)}")
+            detail = f"[400 Bad Request]: {body.get('message', resp.text)}"
         else:
-            print(f"\nERROR [{code}]: {resp.text}")
+            detail = f"[{code}]: {resp.text}"
 
-        print(f"  URL: {resp.request.method} {resp.url}")
-        sys.exit(1)
+        url_info = f"{resp.request.method} {resp.url}"
+
+        if code in self.FATAL_STATUS_CODES:
+            print(f"\nERROR {detail}")
+            print(f"  URL: {url_info}")
+            sys.exit(1)
+
+        raise RuntimeError(f"{detail}\n  URL: {url_info}")
 
     # ------------------------------------------------------------------
     # DB Schema
@@ -219,42 +258,11 @@ class NotionUploader:
         return upload_id
 
     # ------------------------------------------------------------------
-    # Block Transform
-    # ------------------------------------------------------------------
-
-    def transform_blocks(self, blocks: list[dict], image_map: dict[str, str]) -> list[dict]:
-        """블록 내 로컬 이미지 URL 을 file_upload 참조로 교체한다."""
-        transformed = copy.deepcopy(blocks)
-        stack = list(transformed)
-
-        while stack:
-            block = stack.pop()
-            block_type = block.get("type", "")
-
-            if block_type == "image":
-                image_data = block.get("image", {})
-                if image_data.get("type") == "external":
-                    url = image_data.get("external", {}).get("url", "")
-                    if url and not url.startswith("http") and url in image_map:
-                        caption = image_data.get("caption")
-                        block["image"] = {
-                            "type": "file_upload",
-                            "file_upload": {"id": image_map[url]},
-                        }
-                        if caption:
-                            block["image"]["caption"] = caption
-
-            children = block.get(block_type, {}).get("children", [])
-            if children:
-                stack.extend(children)
-
-        return transformed
-
-    # ------------------------------------------------------------------
     # Page / Block Creation
     # ------------------------------------------------------------------
 
-    def create_page(self, title: str, meta: dict, parent_title: str = "") -> str:
+    def create_page(self, title: str, meta: dict, parent_title: str = "",
+                    tags: list[str] | None = None) -> str:
         """DB에 페이지를 생성하고 page_id 를 반환한다."""
         properties: dict = {
             self.title_property: {
@@ -282,6 +290,11 @@ class NotionUploader:
             properties["Source URL"] = {"url": source_url}
 
         properties["Status"] = {"select": {"name": "Active"}}
+
+        if tags:
+            properties["Topics"] = {
+                "multi_select": [{"name": t} for t in tags],
+            }
 
         for prop_name, prop_value in self.CUSTOM_PROPERTIES.items():
             if prop_value:
@@ -327,24 +340,27 @@ class NotionUploader:
 
         title = notion_data.get("title", meta.get("title", "Untitled"))
         blocks = notion_data.get("blocks", [])
-        local_images = notion_data.get("local_images", [])
+        local_media = notion_data.get("local_media", notion_data.get("local_images", []))
 
-        image_map: dict[str, str] = {}
-        for filename in local_images:
+        media_map: dict[str, str] = {}
+        for filename in local_media:
             file_path = page_dir / filename
             if file_path.exists():
-                print(f"  Uploading image: {filename}")
+                print(f"  Uploading: {filename}")
                 try:
-                    image_map[filename] = self.upload_file(file_path)
+                    media_map[filename] = self.upload_file(file_path)
                 except Exception as e:
-                    print(f"  WARN: 이미지 업로드 실패 '{filename}': {e}")
+                    print(f"  WARN: 파일 업로드 실패 '{filename}': {e}")
             else:
-                print(f"  WARN: 이미지 파일 없음 '{filename}'")
+                print(f"  WARN: 파일 없음 '{filename}'")
 
-        transformed = self.transform_blocks(blocks, image_map)
+        transformed = transform_blocks(blocks, media_map)
+        transformed = filter_invalid_media(transformed)
+        transformed = sanitize_blocks(transformed)
 
+        tags = notion_data.get("tags", [])
         print(f"  Creating page: {title}")
-        page_id = self.create_page(title, meta, parent_title)
+        page_id = self.create_page(title, meta, parent_title, tags=tags)
 
         if transformed:
             print(f"  Appending {len(transformed)} blocks ...")

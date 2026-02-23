@@ -24,6 +24,7 @@ import yaml
 from atlassian.errors import ApiError
 from atlassian.errors import ApiNotFoundError
 from bs4 import BeautifulSoup
+from bs4 import NavigableString
 from bs4 import Tag
 from markdownify import ATX
 from markdownify import MarkdownConverter
@@ -914,6 +915,18 @@ class Page(Document):
             return name.removesuffix("(Unlicensed)").removesuffix("(Deactivated)").strip()
 
         def convert_li(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            direct_strings = [
+                c for c in el.children
+                if isinstance(c, NavigableString) and c.strip()
+            ]
+            tag_children = [c for c in el.children if isinstance(c, Tag)]
+            if (
+                not direct_strings
+                and tag_children
+                and all(c.name in ("ul", "ol") for c in tag_children)
+            ):
+                return text
+
             md = super().convert_li(el, text, parent_tags)
             bullet = self.options["bullets"][0]
 

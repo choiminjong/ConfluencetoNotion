@@ -239,7 +239,7 @@ output/
   "page_id": 1462521351,
   "title": "01. Jira 이슈 타입 생성/추가/삭제 요청",
   "blocks": [ ... ],
-  "local_images": ["image-2025-3-4_14-45-49.png", "..."]
+  "local_media": ["image-2025-3-4_14-45-49.png", "..."]
 }
 ```
 
@@ -353,14 +353,15 @@ confluencetoNotion/
 │   ├── confluence-markdown-exporter/   # Step 1 패키지 (editable 설치됨)
 │   └── notion-markdown/               # Step 2 패키지 (editable 설치됨)
 ├── pipeline/                           # 변환 파이프라인 모듈
-│   ├── __init__.py
 │   ├── confluence_to_markdown.py       # Step 1: Confluence → Markdown
+│   ├── converter_overrides.py          # 패키지 Converter 메서드 오버라이딩
+│   ├── md_preprocessor.py             # Markdown 전처리 (정규식 기반 정제)
+│   ├── notion_postprocessor.py        # Notion JSON 후처리 (블록 보정)
 │   └── markdown_to_notion.py          # Step 2: Markdown → Notion 블록
 ├── upload/                             # Notion 업로드 모듈
-│   ├── __init__.py
+│   ├── block_utils.py                  # 블록 변환·분할 유틸리티
 │   └── upload.py                       # NotionUploader 클래스
 ├── utils/                              # 유틸리티
-│   ├── __init__.py
 │   └── get_bot_databases.py           # Bot 접근 가능 DB 조회 (DatabaseFinder)
 ├── doc/                                # 문서
 │   ├── getting-started.md              # 이 문서
@@ -386,8 +387,12 @@ confluencetoNotion/
 | `run_convert.py` | Step 1 진입점. Pipeline 클래스 포함. `.env`에서 설정을 읽어 Confluence 데이터를 Markdown + Notion JSON으로 변환 |
 | `run_upload.py` | Step 2 진입점. UploadRunner 클래스 포함. 대화형으로 폴더/Domain 선택 후 Notion DB에 업로드 |
 | `pipeline/confluence_to_markdown.py` | Step 1: Confluence → Markdown + 첨부파일 + meta.json |
+| `pipeline/converter_overrides.py` | confluence-markdown-exporter 패키지 Converter 메서드 오버라이딩 (테이블, Tabs, 이모티콘 등) |
+| `pipeline/md_preprocessor.py` | Markdown 전처리. 정규식 기반으로 Confluence 고유 패턴을 notion-markdown이 처리 가능한 형태로 변환 |
+| `pipeline/notion_postprocessor.py` | Notion JSON 후처리. notion-markdown이 생성한 블록을 Notion API 호환 형태로 보정 |
 | `pipeline/markdown_to_notion.py` | Step 2: Markdown 전처리 → Notion 블록 JSON |
-| `upload/upload.py` | NotionUploader 클래스. DB 스키마 관리 + 페이지 생성 + 블록 분할 전송 + 이미지 업로드 |
+| `upload/block_utils.py` | 블록 변환·분할 유틸리티. 미디어 URL 교체, rich_text 자동 분할, 유효하지 않은 미디어 필터링 |
+| `upload/upload.py` | NotionUploader 클래스. DB 스키마 관리 + 페이지 생성 + 블록 분할 전송 + 미디어 업로드 |
 | `utils/get_bot_databases.py` | DatabaseFinder 클래스. Notion Integration이 접근 가능한 DB 목록 조회 |
 | `.env` | Confluence/Notion 연결 정보 및 API 설정 (git에 포함하지 않음) |
 | `.env.example` | `.env` 작성 참고용 템플릿 (git에 포함) |
