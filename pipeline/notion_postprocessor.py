@@ -26,6 +26,19 @@ _MD_TOKEN_RE = re.compile(
 
 
 # ------------------------------------------------------------------
+# 헬퍼 함수
+# ------------------------------------------------------------------
+
+def _get_block_text(block: dict) -> str:
+    """블록의 첫 번째 rich_text content를 반환한다."""
+    bt = block.get("type", "")
+    rt = block.get(bt, {}).get("rich_text", [])
+    if not rt:
+        return ""
+    return "".join(item.get("text", {}).get("content", "") for item in rt)
+
+
+# ------------------------------------------------------------------
 # 개별 후처리 함수
 # ------------------------------------------------------------------
 
@@ -84,6 +97,109 @@ def parse_callout_content(text: str) -> tuple[list[dict], list[dict]]:
         rich_text = [{"type": "text", "text": {"content": text}}]
 
     return rich_text, image_children
+
+
+_TOGGLE_PREFIX = "TOGGLE_START::"
+
+
+def convert_toggle_markers(blocks: list[dict]) -> list[dict]:
+    """TOGGLE_START::title / TOGGLE_END 마커 paragraph 를 toggle 블록으로 조립한다."""
+    result: list[dict] = []
+    i = 0
+    while i < len(blocks):
+        text = _get_block_text(blocks[i])
+        if blocks[i].get("type") == "paragraph" and text.startswith(_TOGGLE_PREFIX):
+            title = text[len(_TOGGLE_PREFIX):].strip()
+            children: list[dict] = []
+            i += 1
+            depth = 1
+            while i < len(blocks) and depth > 0:
+                child_text = _get_block_text(blocks[i])
+                is_para = blocks[i].get("type") == "paragraph"
+                if is_para and child_text.startswith(_TOGGLE_PREFIX):
+                    depth += 1
+                    children.append(blocks[i])
+                elif is_para and child_text.strip() == "TOGGLE_END":
+                    depth -= 1
+                    if depth == 0:
+                        i += 1
+                        break
+                    children.append(blocks[i])
+                else:
+                    children.append(blocks[i])
+                i += 1
+
+            children = convert_toggle_markers(children)
+            if not children:
+                children = [{"type": "paragraph", "paragraph": {"rich_text": []}}]
+
+            result.append({
+                "type": "toggle",
+                "toggle": {
+                    "rich_text": [{"type": "text", "text": {"content": title}}],
+                    "children": children,
+                },
+            })
+        elif blocks[i].get("type") == "paragraph" and text.strip() == "TOGGLE_END":
+            i += 1
+        else:
+            result.append(blocks[i])
+            i += 1
+    return result
+
+
+def strip_html_tag_blocks(blocks: list[dict]) -> list[dict]:
+    """잔여 HTML 태그만 포함된 paragraph 블록을 제거한다."""
+    _TAG_ONLY = frozenset({"</details>", "<details>", "</summary>"})
+    cleaned: list[dict] = []
+    for b in blocks:
+        text = _get_block_text(b)
+        if b.get("type") == "paragraph" and text.strip() in _TAG_ONLY:
+            continue
+        bt = b.get("type", "")
+        children = b.get(bt, {}).get("children", [])
+        if children:
+            b[bt]["children"] = strip_html_tag_blocks(children)
+        cleaned.append(b)
+    return cleaned
+
+
+_NESTING_TYPES = frozenset({"toggle", "callout", "quote", "bulleted_list_item", "numbered_list_item"})
+
+
+def flatten_nested_tables(blocks: list[dict], depth: int = 0) -> list[dict]:
+    """중첩 깊이가 2 이상인 table 블록을 paragraph 로 변환한다.
+
+    Notion API 는 toggle>toggle>table 등 깊은 중첩에서 table 타입을 거부한다.
+    """
+    result: list[dict] = []
+    for block in blocks:
+        bt = block.get("type", "")
+        block_data = block.get(bt, {})
+        children = block_data.get("children", [])
+
+        if bt == "table" and depth >= 2:
+            for row in children:
+                if row.get("type") != "table_row":
+                    continue
+                cells = row.get("table_row", {}).get("cells", [])
+                cell_texts = [
+                    "".join(it.get("text", {}).get("content", "") for it in cell)
+                    for cell in cells
+                ]
+                result.append({
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [{"type": "text", "text": {"content": " | ".join(cell_texts)}}],
+                    },
+                })
+        else:
+            if children:
+                next_depth = depth + 1 if bt in _NESTING_TYPES else depth
+                block_data["children"] = flatten_nested_tables(children, next_depth)
+            result.append(block)
+
+    return result
 
 
 def fix_callout_content(blocks: list[dict]) -> list[dict]:
@@ -251,6 +367,9 @@ def extract_local_media(blocks: list[dict]) -> list[str]:
 
 def postprocess(blocks: list[dict]) -> list[dict]:
     """Notion JSON 블록 목록을 후처리하여 API 호환성을 보정한다."""
+    blocks = convert_toggle_markers(blocks)
+    blocks = strip_html_tag_blocks(blocks)
+    blocks = flatten_nested_tables(blocks)
     blocks = fix_callout_content(blocks)
     blocks = fix_toggle_children(blocks)
     blocks = extract_images_from_text_blocks(blocks)

@@ -340,7 +340,7 @@ blocks = [
 
 ### Rate Limit 처리
 
-Notion API가 429 (Too Many Requests) 응답을 반환하면 `Retry-After` 헤더를 참고하여 자동으로 대기 후 재시도한다. 요청 간 `REQUEST_INTERVAL` (0.35초) 간격을 두어 Rate Limit을 예방한다.
+Notion API가 429 (Too Many Requests) 응답을 반환하면 `Retry-After` 헤더를 참고하여 자동으로 대기 후 재시도한다. 요청 간 `REQUEST_INTERVAL` (0.20초) 간격을 두어 Rate Limit을 예방한다.
 
 ---
 
@@ -367,6 +367,8 @@ confluencetoNotion/
 │   ├── getting-started.md              # 이 문서
 │   ├── dependencies.md                 # 의존성 패키지 및 라이선스
 │   ├── package-overview.md             # 패키지 기능 가이드
+│   ├── spec/
+│   │   └── migration-spec.md           # 마이그레이션 변환 스펙 (지원 매크로, 블록 타입, 제한사항)
 │   └── release/
 │       └── CHANGELOG.md                # 릴리즈 기록
 ├── output/                             # 변환 결과 (실행 시 생성, git 제외)

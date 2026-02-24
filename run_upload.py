@@ -135,7 +135,7 @@ class UploadRunner:
     def print_error_summary(self) -> None:
         """업로드 에러 리포트가 있으면 요약을 출력한다."""
         error_file = self.target_dir / "upload_errors.json"
-        if not error_file or not error_file.exists():
+        if not error_file.exists():
             return
         report = json.loads(error_file.read_text(encoding="utf-8"))
         failed = report.get("failed", 0)

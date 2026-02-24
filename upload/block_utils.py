@@ -108,6 +108,20 @@ def split_rich_text(
     return result[:max_array]
 
 
+_VALID_URL_PREFIXES = ("http://", "https://", "mailto:", "/")
+
+
+def _strip_invalid_links(rich_text: list[dict]) -> list[dict]:
+    """Notion API가 거부하는 잘못된 URL(앵커, 상대경로 등)을 제거한다."""
+    for item in rich_text:
+        link = item.get("text", {}).get("link")
+        if link and isinstance(link.get("url"), str):
+            url = link["url"]
+            if not url.lower().startswith(_VALID_URL_PREFIXES):
+                item["text"]["link"] = None
+    return rich_text
+
+
 def sanitize_blocks(
     blocks: list[dict],
     limit: int = MAX_TEXT_LENGTH,
@@ -118,12 +132,14 @@ def sanitize_blocks(
         block_type = block.get("type", "")
         block_data = block.get(block_type, {})
         if "rich_text" in block_data:
+            _strip_invalid_links(block_data["rich_text"])
             block_data["rich_text"] = split_rich_text(block_data["rich_text"], limit, max_array)
         if "children" in block_data:
             sanitize_blocks(block_data["children"], limit, max_array)
         if block_type == "table_row" and "cells" in block_data:
             block_data["cells"] = [
-                split_rich_text(cell, limit, max_array) for cell in block_data["cells"]
+                split_rich_text(_strip_invalid_links(cell), limit, max_array)
+                for cell in block_data["cells"]
             ]
     return blocks
 

@@ -12,6 +12,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
+import urllib3
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from upload.block_utils import filter_invalid_media, sanitize_blocks, transform_blocks
 
@@ -141,7 +144,7 @@ class NotionUploader:
     def api(self, method: str, url: str, **kwargs) -> requests.Response:
         """Rate limit 을 고려한 API 호출. 429 응답 시 자동 재시도한다."""
         for attempt in range(5):
-            resp = requests.request(method, url, **kwargs)
+            resp = requests.request(method, url, verify=False, **kwargs)
             if resp.status_code == 429:
                 wait = int(resp.headers.get("Retry-After", 2 ** attempt))
                 print(f"  Rate limited, waiting {wait}s ...")
@@ -311,6 +314,19 @@ class NotionUploader:
         )
         return resp.json()["id"]
 
+    def _archive_page(self, page_id: str) -> None:
+        """실패한 페이지를 Notion에서 삭제(archive)한다."""
+        try:
+            self.api(
+                "PATCH",
+                f"{self.BASE}/pages/{page_id}",
+                headers=self.headers,
+                json={"archived": True},
+            )
+            print(f"  Cleaned up blank page: {page_id}")
+        except Exception:
+            print(f"  WARN: 빈 페이지 삭제 실패: {page_id}")
+
     def append_blocks(self, parent_id: str, blocks: list[dict]) -> None:
         """블록을 100개씩 분할하여 추가한다."""
         for i in range(0, len(blocks), self.MAX_BLOCKS_PER_REQUEST):
@@ -362,13 +378,13 @@ class NotionUploader:
         print(f"  Creating page: {title}")
         page_id = self.create_page(title, meta, parent_title, tags=tags)
 
-        if transformed:
-            print(f"  Appending {len(transformed)} blocks ...")
-            self.append_blocks(page_id, transformed)
+        try:
+            if transformed:
+                print(f"  Appending {len(transformed)} blocks ...")
+                self.append_blocks(page_id, transformed)
+        except Exception:
+            self._archive_page(page_id)
+            raise
 
         print(f"  Done: https://notion.so/{page_id.replace('-', '')}")
         return page_id
-
-
-if __name__ == "__main__":
-    NotionUploader().run()

@@ -21,6 +21,7 @@ from pipeline.converter_overrides import (
     reset_unsupported_macros,
     unsupported_macros,
 )
+from pipeline.md_preprocessor import VIDEO_EXT_PATTERN
 
 
 class ConfluenceExporter:
@@ -48,7 +49,7 @@ class ConfluenceExporter:
         apply_overrides(self.Page.Converter)
 
     _VIDEO_LINK_RE = re.compile(
-        r"\[([^\]]+\.(?:mp4|webm|mov|avi|wmv|mkv))\]\([^)]+\)",
+        rf"\[([^\]]+\.(?:{VIDEO_EXT_PATTERN}))\]\([^)]+\)",
         re.IGNORECASE,
     )
 
@@ -411,6 +412,7 @@ class ConfluenceExporter:
             print()
 
         self.update_children()
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         self.write_index_json()
 
         self._save_error_report()

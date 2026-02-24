@@ -164,6 +164,96 @@ def _convert_tabs(self, el, text, parent_tags):
 
 
 # ============================================================
+# tabs-group / tab-pane 매크로 오버라이드
+# ============================================================
+
+def _convert_tabs_group(self, el, text, parent_tags):
+    """tabs-group 컨테이너 → 각 tab-pane을 details/summary 블록으로 변환.
+
+    ui-tabs와 달리 실제 콘텐츠를 toggle 안에 포함한다.
+    pane.decode_contents()로 내부 HTML을 새로 변환하여 재귀 방지.
+    """
+    tabs_menu = el.find("ul", class_="tabs-menu")
+    tab_titles = []
+    if tabs_menu:
+        for li in tabs_menu.find_all("li", recursive=False):
+            a_tag = li.find("a")
+            title = a_tag.get_text(strip=True) if a_tag else li.get_text(strip=True)
+            tab_titles.append(title or "Tab")
+
+    panes = el.find_all("div", {"data-macro-name": "tab-pane"})
+    parts = []
+    for i, pane in enumerate(panes):
+        title = pane.get("data-name") or (tab_titles[i] if i < len(tab_titles) else f"Tab {i+1}")
+        print(f"  [Tabs 오버라이드] 탭 '{title}'")
+        raw_html = pane.decode_contents()
+        content = self.convert(raw_html).strip()
+        parts.append(
+            f"\n<details>\n<summary>{title}</summary>\n\n"
+            f"{content}\n\n</details>\n"
+        )
+    return "\n".join(parts)
+
+
+def _noop(self, el, text, parent_tags):
+    """상위 매크로에서 이미 처리된 하위 요소를 무시한다."""
+    return ""
+
+
+# ============================================================
+# horizontal-nav 매크로 오버라이드
+# ============================================================
+
+def _convert_horizontal_nav_group(self, el, text, parent_tags):
+    """horizontal-nav-group → 각 horizontal-nav-item을 토글로 변환.
+
+    UL/LI에서 탭 라벨을 추출하고, 각 item의 콘텐츠를 details/summary로 감싼다.
+    """
+    nav_items = el.find_all("div", {"data-macro-name": "horizontal-nav-item"})
+    if not nav_items:
+        return text or ""
+
+    tab_labels = []
+    for a_tag in el.find_all("a", recursive=True):
+        if a_tag.find_parent("div", {"data-macro-name": "horizontal-nav-item"}):
+            continue
+        label = a_tag.get_text(strip=True)
+        if label:
+            tab_labels.append(label)
+
+    parts = []
+    for i, item in enumerate(nav_items):
+        title = tab_labels[i] if i < len(tab_labels) else f"Tab {i+1}"
+        content = self.convert(item.decode_contents()).strip()
+        if content:
+            parts.append(
+                f"\n<details>\n<summary>{title}</summary>\n\n"
+                f"{content}\n\n</details>\n"
+            )
+    return "\n".join(parts)
+
+
+def _convert_horizontal_nav_item(self, el, text, parent_tags):
+    """horizontal-nav-group에서 일괄 처리하므로 개별 item은 무시."""
+    return ""
+
+
+# ============================================================
+# ui-expand 매크로 오버라이드
+# ============================================================
+
+def _convert_ui_expand(self, el, text, parent_tags):
+    """ui-expand (펼치기/접기) → details/summary 블록으로 변환.
+
+    text 파라미터에 자식 요소의 변환 결과가 이미 포함되어 있다.
+    self.process_tag(el)를 호출하면 convert_div → _convert_ui_expand 무한 재귀 발생.
+    """
+    title = el.get("data-title", "펼치기")
+    content = text.strip() if text else ""
+    return f"\n<details>\n<summary>{title}</summary>\n\n{content}\n\n</details>\n"
+
+
+# ============================================================
 # Page Properties (details) 매크로 오버라이드
 # ============================================================
 
@@ -179,6 +269,11 @@ def _convert_page_properties(self, el, text, parent_tags):
 
 _DIV_MACRO_OVERRIDES = {
     "ui-tabs": _convert_tabs,
+    "tabs-group": _convert_tabs_group,
+    "tab-pane": _noop,
+    "horizontal-nav-group": _convert_horizontal_nav_group,
+    "horizontal-nav-item": _convert_horizontal_nav_item,
+    "ui-expand": _convert_ui_expand,
     "details": _convert_page_properties,
 }
 
