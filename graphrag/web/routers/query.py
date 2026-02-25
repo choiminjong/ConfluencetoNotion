@@ -1,11 +1,14 @@
 """POST /query - GraphRAG 질의 처리."""
 
+import logging
 import re
 import time
 from typing import List
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 from graphrag.web.services.parser import cypher_capture, extract_nodes_from_answer
 
@@ -48,10 +51,10 @@ async def query_graphrag(req: QueryRequest):
         elapsed = round(time.time() - start, 1)
         captured_cypher = cypher_capture.pop()
 
-        print(f"[Query] {req.question}")
-        print(f"[Elapsed] {elapsed}s")
+        logger.info("[Query] %s", req.question)
+        logger.info("[Elapsed] %ss", elapsed)
         if captured_cypher:
-            print(f"[Cypher] {captured_cypher}")
+            logger.info("[Cypher] %s", captured_cypher)
 
         used_nodes, used_edges = [], []
         retriever_used = "unknown"
@@ -87,7 +90,7 @@ async def query_graphrag(req: QueryRequest):
             used_nodes, used_edges = extract_nodes_from_answer(answer_text)
 
         except Exception as e:
-            print(f"파싱 오류: {e}")
+            logger.warning("파싱 오류: %s", e)
 
         return QueryResponse(
             answer=result.answer if hasattr(result, "answer") else str(result),

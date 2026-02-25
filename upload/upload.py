@@ -382,7 +382,7 @@ class NotionUploader:
         if source_url:
             properties["Source URL"] = {"url": source_url}
 
-        properties["Status"] = {"select": {"name": "Active"}}
+        properties["Status"] = {"select": {"name": "Draft"}}
 
         if tags:
             properties["Topics"] = {

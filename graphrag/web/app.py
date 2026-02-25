@@ -4,10 +4,13 @@ GraphRAG 웹 시각화 서버. Neo4j 그래프를 vis-network.js로 시각화하
 GraphRAG 질의를 처리한다.
 """
 
+import logging
 import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+
+logger = logging.getLogger(__name__)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -21,12 +24,12 @@ from graphrag.web.services.rag_service import driver, initialize
 async def lifespan(app: FastAPI):
     try:
         initialize()
-        print(f"LLM:       {BEDROCK_MODEL_ID}")
-        print(f"Embedding: {EMBEDDING_MODEL}")
-        print(f"Neo4j:     {NEO4J_URI} (db: {NEO4J_DB})")
-        print("Retriever 초기화 완료")
+        logger.info("LLM:       %s", BEDROCK_MODEL_ID)
+        logger.info("Embedding: %s", EMBEDDING_MODEL)
+        logger.info("Neo4j:     %s (db: %s)", NEO4J_URI, NEO4J_DB)
+        logger.info("Retriever 초기화 완료")
     except Exception as e:
-        print(f"Retriever 초기화 실패: {e}")
+        logger.error("Retriever 초기화 실패: %s", e)
     yield
     driver.close()
 

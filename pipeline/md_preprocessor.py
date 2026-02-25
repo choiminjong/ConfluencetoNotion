@@ -116,6 +116,8 @@ _VIDEO_LINK_RE = re.compile(
     re.MULTILINE | re.IGNORECASE,
 )
 
+_ADJACENT_BOLD_RE = re.compile(r"(?<!\*)\*{4}(?!\*)")
+
 
 # ------------------------------------------------------------------
 # 개별 전처리 함수
@@ -355,6 +357,15 @@ def flatten_nested_blockquotes(markdown: str) -> str:
     return _NESTED_QUOTE_RE.sub("> ", markdown)
 
 
+def merge_adjacent_bold(markdown: str) -> str:
+    """인접 bold 마커(`****`)를 병합한다.
+
+    Confluence HTML 에서 `<b>A</b><b>B</b>` 가 마크다운으로 `**A****B**` 로
+    변환되는 문제를 `**AB**` 로 정규화한다.
+    """
+    return _ADJACENT_BOLD_RE.sub("", markdown)
+
+
 def convert_video_links(markdown: str) -> str:
     """비디오 파일 링크를 이미지 구문으로 변환하여 블록으로 인식시킨다.
 
@@ -387,6 +398,7 @@ def preprocess(markdown: str) -> str:
     md = strip_empty_headings(md)
     md = normalize_heading_levels(md)
     md = convert_alerts_to_callouts(md)
+    md = merge_adjacent_bold(md)
     md = strip_bold_headings(md)
     md = clean_pagetree_entries(md)
     md = strip_velocity_images(md)

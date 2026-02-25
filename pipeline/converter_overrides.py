@@ -151,11 +151,9 @@ def _convert_tabs(self, el, text, parent_tags):
     전체 테이블 콘텐츠 대신 탭 제목과 플레이스홀더만 생성한다.
     실제 하위 페이지 이름은 export_page() 후처리에서 Confluence API로 주입한다.
     """
-    print("  [Tabs 오버라이드] ui-tabs 매크로 감지")
     parts = []
     for tab in el.find_all("div", {"data-macro-name": "ui-tab"}, recursive=False):
         title = tab.get("data-name", "Tab")
-        print(f"  [Tabs 오버라이드] 탭 '{title}'")
         parts.append(
             f"\n<details>\n<summary>{title}</summary>\n\n"
             f"<!-- TAB_CHILDREN:{title} -->\n\n</details>\n\n"
@@ -185,7 +183,6 @@ def _convert_tabs_group(self, el, text, parent_tags):
     parts = []
     for i, pane in enumerate(panes):
         title = pane.get("data-name") or (tab_titles[i] if i < len(tab_titles) else f"Tab {i+1}")
-        print(f"  [Tabs 오버라이드] 탭 '{title}'")
         raw_html = pane.decode_contents()
         content = self.convert(raw_html).strip()
         parts.append(
