@@ -15,6 +15,21 @@
 | `atlassian-python-api` | latest | Apache 2.0 | O | Confluence/Jira REST API 클라이언트 |
 | `python-dotenv` | latest | BSD-3-Clause | O | `.env` 파일에서 환경변수 로드 |
 | `requests` | latest | Apache 2.0 | O | Notion API HTTP 호출 |
+| `neo4j` | latest | Apache 2.0 | O | Neo4j 드라이버 |
+| `neo4j-graphrag` | latest | Apache 2.0 | O | Neo4j GraphRAG 프레임워크 |
+| `anthropic[bedrock]` | latest | MIT | O | AWS Bedrock Claude LLM |
+| `openai` | latest | MIT | O | Azure OpenAI 임베딩 |
+| `fastapi` | latest | MIT | O | 웹 API 서버 |
+| `uvicorn[standard]` | latest | BSD-3-Clause | O | ASGI 서버 |
+
+### 프론트엔드 CDN 라이브러리
+
+| 라이브러리 | 버전 | 라이선스 | 상업적 사용 | 용도 |
+|---|---|---|---|---|
+| `vis-network.js` | latest | Apache 2.0 / MIT | O | 2D 그래프 시각화 |
+| `3d-force-graph` | 1.x | MIT | O | 3D 그래프 시각화 |
+| `Chart.js` | 4.x | MIT | O | 분석 대시보드 차트 |
+| `marked.js` | latest | MIT | O | Markdown 렌더링 |
 
 ### confluence-markdown-exporter
 

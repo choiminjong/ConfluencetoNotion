@@ -1,7 +1,7 @@
-"""Phase 2 STEP 4: Excel 데이터를 Neo4j 그래프로 구축.
+"""Phase 2 STEP 4: JSON 데이터를 Neo4j 그래프로 구축.
 
-STEP 3에서 생성된 Excel 파일을 읽어 Neo4j에 Page, Content, Space, Domain, Topic
-노드와 관계를 생성한다.
+STEP 3에서 생성된 JSON 파일(스키마 포함)을 읽어 Neo4j에 스키마 기반으로
+Page, Content, 그리고 select/multi_select 필드에 대한 동적 노드·관계를 생성한다.
 
 사용법:
     python -m graphrag.graph.run
@@ -14,22 +14,25 @@ STEP 3에서 생성된 Excel 파일을 읽어 Neo4j에 Page, Content, Space, Dom
 """
 
 import glob
+import json
 import os
 import sys
 from pathlib import Path
 
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8")
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path[0] = str(PROJECT_ROOT)
 
-import pandas as pd
 from dotenv import load_dotenv
 
 load_dotenv(PROJECT_ROOT / ".env")
 
 
-def find_latest_excel() -> Path | None:
-    """output/graphrag/ 에서 가장 최근 Excel 파일을 찾는다."""
-    pattern = str(PROJECT_ROOT / "output" / "graphrag" / "Pages_*.xlsx")
+def find_latest_json() -> Path | None:
+    """output/graphrag/ 에서 가장 최근 JSON 파일을 찾는다."""
+    pattern = str(PROJECT_ROOT / "output" / "graphrag" / "pages_*.json")
     files = sorted(glob.glob(pattern), reverse=True)
     return Path(files[0]) if files else None
 
@@ -39,31 +42,47 @@ def main():
 
     uri = os.getenv("NEO4J_URI", "bolt://127.0.0.1:7687")
     username = os.getenv("NEO4J_USERNAME", "neo4j")
-    password = os.getenv("NEO4J_PASSWORD", "")
+    password = os.getenv("NEO4J_PASSWORD", "neo4jpass")
     db_name = os.getenv("NEO4J_DB", "neo4j")
 
     if not password:
         print("ERROR: .env에 NEO4J_PASSWORD 설정 필요")
         sys.exit(1)
 
-    excel_path = find_latest_excel()
-    if not excel_path:
-        print("ERROR: output/graphrag/ 에 Excel 파일이 없습니다.")
+    json_path = find_latest_json()
+    if not json_path:
+        print("ERROR: output/graphrag/ 에 JSON 파일이 없습니다.")
         print("  먼저 python -m graphrag.scraper.run 을 실행하세요.")
         sys.exit(1)
 
     print("=" * 60)
-    print("Phase 2 STEP 4: Excel → Neo4j 그래프")
+    print("Phase 2 STEP 4: JSON → Neo4j 그래프")
     print("=" * 60)
-    print(f"\n  입력 파일: {excel_path.name}")
+    print(f"\n  입력 파일: {json_path.name}")
     print(f"  Neo4j:     {uri} / {db_name}")
 
-    df = pd.read_excel(excel_path, engine="openpyxl")
-    df = df.fillna("")
-    records = df.to_dict("records")
+    with open(json_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    schema = data.get("schema", {})
+    records = data.get("pages", [])
+
+    def _nulls_to_empty(obj):
+        """None 값을 빈 문자열로 재귀 변환한다."""
+        if isinstance(obj, dict):
+            return {k: _nulls_to_empty(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_nulls_to_empty(item) for item in obj]
+        return "" if obj is None else obj
+
+    records = _nulls_to_empty(records)
+
+    print(f"  스키마:     필드 {len(schema)}개")
     print(f"  페이지 수:  {len(records)}개\n")
 
-    builder = GraphBuilder(uri=uri, auth=(username, password), database=db_name)
+    builder = GraphBuilder(
+        uri=uri, auth=(username, password), database=db_name, schema=schema,
+    )
 
     try:
         print("[1/3] DB 초기화...")

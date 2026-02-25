@@ -6,6 +6,18 @@ heading, paragraph, list, table, code, callout, toggle 등을 지원한다.
 
 from __future__ import annotations
 
+import re
+
+_ATTACHMENT_RE = re.compile(r"📎\s*\S+\.\w{2,5}")
+_MEDIA_TAG_RE = re.compile(r"\[(이미지|비디오|오디오):[^\]]*\]")
+
+
+def _clean_media_noise(text: str) -> str:
+    """첨부파일 참조(📎)와 미디어 태그([이미지: ...])를 제거한다."""
+    text = _ATTACHMENT_RE.sub("", text)
+    text = _MEDIA_TAG_RE.sub("", text)
+    return text
+
 
 def _rich_text_to_plain(rich_text_list: list[dict]) -> str:
     """rich_text 배열에서 plain_text만 이어 붙인다."""
@@ -75,13 +87,8 @@ def _parse_block(block: dict, depth: int = 0) -> str:
     if block_type == "table":
         return _parse_table(data, indent)
 
-    if block_type == "image":
-        caption = _rich_text_to_plain(data.get("caption", []))
-        return f"{indent}[이미지: {caption}]" if caption else ""
-
-    if block_type == "video":
-        caption = _rich_text_to_plain(data.get("caption", []))
-        return f"{indent}[비디오: {caption}]" if caption else ""
+    if block_type in ("image", "video"):
+        return ""
 
     if block_type == "equation":
         return f"{indent}{data.get('expression', '')}"
@@ -120,4 +127,4 @@ def _parse_children(children: list[dict], depth: int = 0) -> str:
 
 def blocks_to_text(blocks: list[dict]) -> str:
     """블록 리스트 전체를 플레인 텍스트로 변환한다."""
-    return _parse_children(blocks)
+    return _clean_media_noise(_parse_children(blocks))

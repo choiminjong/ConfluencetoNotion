@@ -15,21 +15,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from graphrag.web.config import BEDROCK_MODEL_ID, EMBEDDING_MODEL, NEO4J_DB, NEO4J_URI
+from graphrag.web.config import NEO4J_DB, NEO4J_URI
 from graphrag.web.routers import graph, health, query
 from graphrag.web.services.rag_service import driver, initialize
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info("Neo4j: %s (db: %s)", NEO4J_URI, NEO4J_DB)
+    logger.info("Graph visualization ready")
     try:
         initialize()
-        logger.info("LLM:       %s", BEDROCK_MODEL_ID)
-        logger.info("Embedding: %s", EMBEDDING_MODEL)
-        logger.info("Neo4j:     %s (db: %s)", NEO4J_URI, NEO4J_DB)
-        logger.info("Retriever 초기화 완료")
+        logger.info("RAG pipeline initialized (query enabled)")
     except Exception as e:
-        logger.error("Retriever 초기화 실패: %s", e)
+        logger.warning(
+            "RAG pipeline not available: %s -- "
+            "Graph visualization works, but /query will return errors.",
+            e,
+        )
     yield
     driver.close()
 
