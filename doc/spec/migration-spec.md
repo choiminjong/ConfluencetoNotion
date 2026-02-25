@@ -154,11 +154,14 @@ Markdown을 Notion API 호환 블록 JSON으로 변환합니다.
 | Updated | date | 마지막 수정일 | `2022-08-13` |
 | Parent Title | rich_text | 부모 페이지 제목 | `IT 가이드` |
 | Source URL | url | 원본 Confluence URL | `https://confluence.../pages/viewpage.action?pageId=610667564` |
-| Status | select | 문서 상태 | `Active` |
-| Topics | multi_select | 라벨 태그 | `teams`, `M365` |
+| Status | select | 문서 상태 | `Draft` (고정) |
+| Topics | multi_select | 라벨 태그 (선택) | `teams`, `M365` |
 | Domain | select | 문서 영역 (업로드 시 지정) | `M365` |
 
 DB에 속성이 없으면 자동 생성됩니다.
+
+- **Status**: 모든 페이지가 `Draft`로 생성됩니다. 검토 완료 후 Notion에서 `Active`로 변경하세요.
+- **Topics**: 업로드 시 Confluence 라벨 포함 여부를 선택할 수 있습니다 (y/n 프롬프트).
 
 ### 4.2 미디어 업로드
 

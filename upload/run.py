@@ -106,6 +106,16 @@ class UploadRunner:
         except EOFError:
             return "Jira"
 
+    def ask_topics(self) -> bool:
+        """Confluence 라벨을 Notion Topics로 가져올지 선택한다."""
+        print("\nConfluence 라벨을 Topics에 포함할까요? (y/n, 기본값: y)")
+        print("Topics: ", end="")
+        try:
+            value = input().strip().lower()
+            return value != "n"
+        except EOFError:
+            return True
+
     def run(self):
         """대화형 입력을 받고 업로드를 실행한다."""
         self.target_dir = self.select_folder()
@@ -113,6 +123,7 @@ class UploadRunner:
             sys.exit(1)
 
         self.domain = self.ask_domain()
+        self.use_topics = self.ask_topics()
 
         uploader = NotionUploader(
             token=self.token,
@@ -123,10 +134,12 @@ class UploadRunner:
         )
         uploader.target_dir = self.target_dir
         uploader.CUSTOM_PROPERTIES = {"Domain": self.domain}
+        uploader.use_topics = self.use_topics
 
         print(f"\n{'=' * 50}")
         print(f"  대상 폴더 : {self.target_dir.name}")
         print(f"  Domain    : {self.domain}")
+        print(f"  Topics    : {'포함' if self.use_topics else '제외'}")
         print(f"  API       : {uploader.BASE}")
         print(f"  Version   : {uploader.headers['Notion-Version']}")
         print(f"{'=' * 50}\n")

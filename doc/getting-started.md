@@ -206,6 +206,7 @@ python -m upload.run AGUIDE_1427741158_20260222   # 폴더 직접 지정
 
 1. **대상 폴더 선택** — `output/` 하위 폴더 목록에서 번호로 선택 (또는 인자로 직접 지정)
 2. **Domain 입력** — 문서의 주제 영역 (예: `Jira`, `Confluence`, `CI/CD`, `Security`)
+3. **Topics 포함 여부** — Confluence 라벨을 Notion Topics에 포함할지 선택 (`y`/`n`, 기본값: `y`)
 
 입력 후 요약 정보를 보여주고 업로드가 진행된다.
 

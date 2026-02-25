@@ -57,6 +57,7 @@ class NotionUploader:
             "Content-Type": "application/json",
         }
         self.title_property = "Name"
+        self.use_topics = True
         self.db_properties: dict = {}
 
     def run(self):
@@ -384,7 +385,7 @@ class NotionUploader:
 
         properties["Status"] = {"select": {"name": "Draft"}}
 
-        if tags:
+        if tags and self.use_topics:
             properties["Topics"] = {
                 "multi_select": [{"name": t} for t in tags],
             }
