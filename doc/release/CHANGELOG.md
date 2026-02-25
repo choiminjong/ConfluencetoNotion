@@ -4,6 +4,7 @@
 
 | 버전 | 날짜 | 요약 |
 |---|---|---|
+| [v0.7.0](v0.7.0.md) | 2026-02-25 | 프로젝트 구조 재편, Phase 2 GraphRAG, 중첩 quote 평탄화, 실패 페이지 재업로드 |
 | [v0.6.3](v0.6.3.md) | 2026-02-24 | 인라인 헤딩 분리, URL 중복 제거, {{BR}} 처리, callout toggle 분리, H4-H6→H3, toggle 내부 파싱, 첨부파일 제거 |
 | [v0.6.2](v0.6.2.md) | 2026-02-23 | tabs-group/tab-pane toggle 변환, horizontal-nav 제거, ui-expand toggle 변환 |
 | [v0.6.1](v0.6.1.md) | 2026-02-23 | 미지원 매크로 자동 감지 로그, columnLayout 순차 변환, 업로드 속도 개선 |

@@ -17,7 +17,7 @@ from pipeline.notion_postprocessor import extract_local_media, postprocess
 class NotionConverter:
     """Confluence Markdown 을 Notion API 블록 JSON 으로 변환한다."""
 
-    def __init__(self, output_dir: str = "./output"):
+    def __init__(self, output_dir: str = str(Path(__file__).resolve().parent.parent / "output")):
         self.output_dir = Path(output_dir)
         self.errors: list[dict] = []
 

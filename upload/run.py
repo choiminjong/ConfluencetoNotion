@@ -1,17 +1,20 @@
-"""Step 2: output 폴더를 선택하여 Notion DB에 업로드.
+"""Phase 1 STEP 2: output 폴더를 선택하여 Notion DB에 업로드.
 
 output/ 하위 폴더를 선택하고, Domain을 지정하여 Notion DB에 업로드한다.
 .env에 NOTION_TOKEN, NOTION_DATABASE_ID, NOTION_API_URL, NOTION_API_PATH, NOTION_API_VERSION 설정 필요.
 
 사용법:
-    uv run python run_upload.py                              대화형 폴더 선택
-    uv run python run_upload.py AGUIDE_1427741158_20260222   폴더 직접 지정
+    python -m upload.run                              대화형 폴더 선택
+    python -m upload.run AGUIDE_1427741158_20260222   폴더 직접 지정
 """
 
 import json
 import os
 import sys
 from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path[0] = str(PROJECT_ROOT)
 
 from dotenv import load_dotenv
 
@@ -21,10 +24,10 @@ from upload.upload import NotionUploader
 class UploadRunner:
     """Notion DB 업로드를 대화형으로 실행한다."""
 
-    OUTPUT_BASE = Path("./output")
+    OUTPUT_BASE = PROJECT_ROOT / "output"
 
     def __init__(self):
-        load_dotenv()
+        load_dotenv(PROJECT_ROOT / ".env")
 
         self.token = os.getenv("NOTION_TOKEN", "")
         self.database_id = os.getenv("NOTION_DATABASE_ID", "")
@@ -61,7 +64,7 @@ class UploadRunner:
             key=lambda d: d.name,
         )
         if not folders:
-            print("업로드할 데이터가 없습니다. 먼저 run_convert.py를 실행하세요.")
+            print("업로드할 데이터가 없습니다. 먼저 python -m pipeline.run 을 실행하세요.")
             return None
 
         if len(sys.argv) >= 2:

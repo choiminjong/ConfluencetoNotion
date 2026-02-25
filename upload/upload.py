@@ -16,6 +16,7 @@ import urllib3
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+from pipeline.notion_postprocessor import flatten_nested_quotes
 from upload.block_utils import filter_invalid_media, sanitize_blocks, transform_blocks
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
@@ -130,6 +131,95 @@ class NotionUploader:
         }
         path = self.target_dir / "upload_errors.json"
         path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # ------------------------------------------------------------------
+    # Retry
+    # ------------------------------------------------------------------
+
+    def retry(self, page_ids: list[str]) -> None:
+        """upload_errors.json에 기록된 실패 페이지만 재업로드한다."""
+        index_path = self.target_dir / "index.json"
+        if not index_path.exists():
+            print(f"ERROR: {index_path} 가 없습니다.")
+            return
+
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+        tree = index.get("tree", [])
+        total = index.get("total_pages", 0)
+        targets = self._find_nodes(tree, set(page_ids))
+
+        not_found = set(page_ids) - set(targets.keys())
+        if not_found:
+            print(f"WARN: tree에서 찾을 수 없는 page_id: {', '.join(not_found)}")
+
+        if not targets:
+            print("재업로드할 페이지를 찾을 수 없습니다.")
+            return
+
+        print(f"재업로드 시작: {len(targets)}개 페이지\n")
+
+        success_count = 0
+        still_failed: list[dict] = []
+
+        for page_id, (node, parent_title) in targets.items():
+            title = node.get("title", "")
+            page_dir = self.target_dir / str(page_id)
+            print(f"[Retry - Page {page_id}]")
+            try:
+                result = self.upload_page(page_dir, parent_title)
+                if result:
+                    success_count += 1
+            except Exception as e:
+                still_failed.append({
+                    "page_id": str(page_id),
+                    "title": title,
+                    "step": "upload",
+                    "error_type": type(e).__name__,
+                    "message": str(e),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                })
+                print(f"  ERROR: {e}")
+            print()
+
+        self._update_error_report(still_failed, total, success_count)
+
+        print(f"재업로드 완료: {success_count}개 성공, {len(still_failed)}개 실패")
+
+    @staticmethod
+    def _find_nodes(tree: list[dict], page_ids: set[str]) -> dict[str, tuple[dict, str]]:
+        """tree를 BFS로 순회하여 page_ids에 해당하는 노드와 parent_title을 반환한다."""
+        result: dict[str, tuple[dict, str]] = {}
+        queue: list[tuple[dict, str]] = [(node, "") for node in tree]
+
+        while queue:
+            node, parent_title = queue.pop(0)
+            nid = str(node["id"])
+            if nid in page_ids:
+                result[nid] = (node, parent_title)
+            title = node.get("title", "")
+            for child in node.get("children", []):
+                queue.append((child, title))
+
+        return result
+
+    def _update_error_report(self, still_failed: list[dict], total: int, retry_success: int) -> None:
+        """재업로드 결과를 반영하여 upload_errors.json을 갱신한다."""
+        error_path = self.target_dir / "upload_errors.json"
+
+        prev_success = 0
+        if error_path.exists():
+            prev = json.loads(error_path.read_text(encoding="utf-8"))
+            prev_success = prev.get("success", 0)
+
+        report = {
+            "run_dir": str(self.target_dir),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "total_pages": total,
+            "success": prev_success + retry_success,
+            "failed": len(still_failed),
+            "errors": still_failed,
+        }
+        error_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # ------------------------------------------------------------------
     # API
@@ -373,6 +463,7 @@ class NotionUploader:
         transformed = transform_blocks(blocks, media_map)
         transformed = filter_invalid_media(transformed)
         transformed = sanitize_blocks(transformed)
+        transformed = flatten_nested_quotes(transformed)
 
         tags = notion_data.get("tags", [])
         print(f"  Creating page: {title}")

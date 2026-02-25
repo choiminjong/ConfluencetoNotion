@@ -424,11 +424,13 @@ class ConfluenceExporter:
 if __name__ == "__main__":
     import os
     from dotenv import load_dotenv
-    load_dotenv()
+
+    _PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    load_dotenv(_PROJECT_ROOT / ".env")
     exporter = ConfluenceExporter(
         url=os.getenv("CONFLUENCE_URL", ""),
         pat=os.getenv("CONFLUENCE_PAT", ""),
-        output_dir="./output",
+        output_dir=str(_PROJECT_ROOT / "output"),
         page_ids=[1427741158],
         include_descendants=True,
     )

@@ -102,6 +102,12 @@ _PAGETREE_ENTRY_RE = re.compile(
     r'(?:\s+"[^"]*")?\)',
 )
 
+_NESTED_QUOTE_RE = re.compile(r"^(?:>\s*){2,}", re.MULTILINE)
+
+_QUOTED_DETAILS_RE = re.compile(
+    r">?\s?<details>\s*\n(>\s?<summary>[\s\S]*?>\s*</details>)",
+)
+
 _VIDEO_EXTENSIONS = frozenset({".mp4", ".webm", ".mov", ".avi", ".wmv", ".mkv"})
 VIDEO_EXT_PATTERN = "|".join(ext.lstrip(".") for ext in sorted(_VIDEO_EXTENSIONS))
 
@@ -321,6 +327,34 @@ def strip_velocity_images(markdown: str) -> str:
     return _VELOCITY_IMAGE_RE.sub("", markdown)
 
 
+def strip_blockquote_in_details(markdown: str) -> str:
+    """<details> 내부에 > 접두사가 있으면 제거한다.
+
+    Confluence 내보내기에서 blockquote 안의 <details> 태그는
+    <summary>, 콘텐츠, </details> 모두에 > 접두사가 붙는다.
+    이를 제거하여 convert_details_to_delimiters 가 정상 매칭하도록 한다.
+    """
+    def _clean(m: re.Match) -> str:
+        content = m.group(1)
+        cleaned = re.sub(r"^>\s?", "", content, flags=re.MULTILINE)
+        return "<details>\n" + cleaned
+
+    prev = None
+    while prev != markdown:
+        prev = markdown
+        markdown = _QUOTED_DETAILS_RE.sub(_clean, markdown)
+    return markdown
+
+
+def flatten_nested_blockquotes(markdown: str) -> str:
+    """이중 이상의 블록인용(> > text)을 단일 인용(> text)으로 변환한다.
+
+    Notion API 는 quote 안의 quote 를 허용하지 않으므로 마크다운 단계에서
+    중첩 인용을 제거한다.
+    """
+    return _NESTED_QUOTE_RE.sub("> ", markdown)
+
+
 def convert_video_links(markdown: str) -> str:
     """비디오 파일 링크를 이미지 구문으로 변환하여 블록으로 인식시킨다.
 
@@ -359,5 +393,7 @@ def preprocess(markdown: str) -> str:
     md = strip_confluence_links(md)
     md = convert_list_headings(md)
     md = convert_html_tables(md)
+    md = strip_blockquote_in_details(md)
+    md = flatten_nested_blockquotes(md)
     md = convert_details_to_delimiters(md)
     return md

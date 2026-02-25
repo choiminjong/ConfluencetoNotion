@@ -341,6 +341,38 @@ def convert_image_to_video(blocks: list[dict]) -> list[dict]:
     return blocks
 
 
+def flatten_nested_quotes(blocks: list[dict], parent_is_quote: bool = False) -> list[dict]:
+    """quote 블록 내부의 중첩 quote 를 평탄화한다.
+
+    Notion API 는 quote > quote (children 포함) 구조를 거부한다.
+    중첩된 quote 의 rich_text 를 paragraph 로 변환하고,
+    children 을 형제 블록으로 승격시킨다.
+    """
+    result: list[dict] = []
+    for block in blocks:
+        bt = block.get("type", "")
+        block_data = block.get(bt, {})
+        children = block_data.get("children", [])
+
+        if bt == "quote" and parent_is_quote:
+            rt = block_data.get("rich_text", [])
+            if rt:
+                result.append({
+                    "type": "paragraph",
+                    "paragraph": {"rich_text": rt},
+                })
+            if children:
+                result.extend(flatten_nested_quotes(children, parent_is_quote=True))
+        else:
+            if children:
+                block_data["children"] = flatten_nested_quotes(
+                    children, parent_is_quote=(bt == "quote"),
+                )
+            result.append(block)
+
+    return result
+
+
 def extract_local_media(blocks: list[dict]) -> list[str]:
     """Notion 블록 목록에서 로컬 이미지/비디오 파일명을 재귀적으로 추출한다."""
     media: list[str] = []
@@ -374,4 +406,5 @@ def postprocess(blocks: list[dict]) -> list[dict]:
     blocks = fix_toggle_children(blocks)
     blocks = extract_images_from_text_blocks(blocks)
     blocks = convert_image_to_video(blocks)
+    blocks = flatten_nested_quotes(blocks)
     return blocks

@@ -116,6 +116,8 @@ Markdown을 Notion API 호환 블록 JSON으로 변환합니다.
 |------|------|------|
 | Alert → Callout | `> [!NOTE]` 블록 | `<aside>` 블록 (아이콘 포함) |
 | Details → Toggle 마커 | `<details>/<summary>` | `TOGGLE_START::제목` / `TOGGLE_END` |
+| blockquote 내 Details 정리 | `> <details>` / `> <summary>` | `>` 접두사 제거 후 Toggle 마커 변환 |
+| 이중 인용 평탄화 | `> > 텍스트` | `> 텍스트` (Notion은 중첩 quote 미지원) |
 | HTML 테이블 → 파이프 테이블 | `<table>...</table>` | `\| 열1 \| 열2 \|` |
 | `{{BR}}` → 줄바꿈 | `{{BR}}` | `\n` |
 | 첨부파일 섹션 제거 | `## 첨부 파일` + 목록 | (삭제) |
@@ -135,6 +137,7 @@ Markdown을 Notion API 호환 블록 JSON으로 변환합니다.
 | Toggle 내부 리스트 | toggle 자식의 `- item` 텍스트를 `bulleted_list_item` 블록으로 분리 |
 | 인라인 이미지 추출 | toggle/callout 자식 paragraph에서 `![](url)` 을 별도 image 블록으로 분리 |
 | 이미지 → 비디오 | URL 확장자가 비디오(.mp4, .webm 등)인 image 블록을 video 블록으로 변환 |
+| 중첩 quote 평탄화 | `quote > quote` 구조의 내부 quote를 paragraph로 변환, children을 형제로 승격 |
 
 ---
 
@@ -211,6 +214,7 @@ DB에 속성이 없으면 자동 생성됩니다.
 |------|------|------|
 | 헤딩 H1-H3만 지원 | H4-H6이 H3으로 변환됨 | 원본 헤딩 깊이 정보 일부 손실 |
 | 테이블 중첩 depth 2 이상 불가 | `toggle > toggle > table` 구조의 테이블이 텍스트로 평탄화 | 내용은 보존, 테이블 서식 손실 |
+| quote 중첩 불가 | `quote > quote (with children)` 거부 | 내부 quote를 paragraph로 자동 평탄화 |
 | rich_text 2,000자 제한 | 긴 텍스트가 여러 세그먼트로 분할 | 내용 보존, 분할 위치에서 줄바꿈 |
 | 다단 레이아웃 미지원 | 2단/3단 컬럼이 순차 배치로 변환 | `---` 구분선으로 영역 구분 |
 
@@ -265,3 +269,62 @@ output/
 | `unsupported_macros.json` | Step 1 | 변환하지 못한 Confluence 매크로 목록 (매크로명, 페이지, 횟수) |
 
 에러가 발생해도 나머지 페이지는 계속 처리됩니다.
+
+### 8.1 업로드 실패 자동 복구
+
+- 블록 업로드(`append_blocks`) 실패 시, 생성된 빈 Notion 페이지를 자동 아카이브
+- 실패 페이지는 `upload_errors.json`에 기록되며 성공으로 오보고되지 않음
+
+### 8.2 실패 페이지 재업로드
+
+`upload_errors.json`을 기반으로 실패 페이지만 선별하여 재업로드할 수 있다.
+
+```bash
+python -m upload.run_retry                  # 대화형 폴더 선택
+python -m upload.run_retry 폴더명           # 폴더 직접 지정
+```
+
+재업로드 시에도 `flatten_nested_quotes`가 적용되어, 기존 `notion.json`에 중첩 quote가 남아있어도 자동 보정된다.
+
+---
+
+## 9. GraphRAG 그래프 스키마 (Phase 2)
+
+Phase 1에서 마이그레이션한 Notion DB 데이터를 Neo4j 그래프로 구축할 때 사용하는 스키마이다.
+
+### 노드 타입
+
+| 노드 | 속성 | 설명 |
+|------|------|------|
+| `Page` | `page_id`, `title`, `source_url`, `updated`, `status` | Notion 페이지 (Confluence 원본) |
+| `Content` | `content_id`, `chunk`, `chunk_index`, `page_id`, `title`, `embedding` | 페이지 본문의 텍스트 청크 (임베딩 대상) |
+| `Space` | `name` | Confluence Space |
+| `Domain` | `name` | 문서 도메인 (Jira, Confluence, CI/CD 등) |
+| `Topic` | `name` | 문서 토픽 태그 |
+
+### 관계 타입
+
+| 관계 | 방향 | 설명 |
+|------|------|------|
+| `HAS_CHUNK` | Page → Content | 페이지의 본문 청크 |
+| `BELONGS_TO` | Page → Domain | 도메인 분류 |
+| `IN_SPACE` | Page → Space | Confluence Space 소속 |
+| `HAS_TOPIC` | Page → Topic | 토픽 태그 |
+| `CHILD_OF` | Page → Page | 부모-자식 페이지 계층 |
+
+### 스키마 다이어그램
+
+```
+Space ──IN_SPACE──► Page ──HAS_CHUNK──► Content
+                     │
+                     ├──BELONGS_TO──► Domain
+                     ├──HAS_TOPIC──► Topic
+                     └──CHILD_OF──► Page (Parent)
+```
+
+### 청킹 전략
+
+- **방식**: Recursive 텍스트 분할
+- **청크 크기**: 500자
+- **오버랩**: 100자
+- **구분자 우선순위**: 문단(`\n\n`) → 줄바꿈(`\n`) → 마침표(`. `) → 쉼표(`, `) → 공백(` `)

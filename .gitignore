@@ -11,6 +11,9 @@ __pycache__/
 # 변환 결과물 (로컬 생성)
 output/
 
+# 참고자료 (커밋 제외)
+Knowledge/
+
 # IDE
 .cursor/
 .vscode/

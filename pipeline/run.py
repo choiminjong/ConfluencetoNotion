@@ -1,10 +1,10 @@
-"""Step 1: Confluence -> Markdown -> Notion JSON 변환.
+"""Phase 1 STEP 1: Confluence -> Markdown -> Notion JSON 변환.
 
 Confluence 페이지를 가져와서 output/ 폴더에 저장한다.
 .env에 CONFLUENCE_URL, CONFLUENCE_PAT 설정 필요.
 
 사용법:
-    uv run python run_convert.py
+    python -m pipeline.run
 
 설정 (.env):
     CONFLUENCE_PAGE_IDS      - 가져올 Confluence 루트 페이지 ID (쉼표 구분)
@@ -24,6 +24,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path[0] = str(PROJECT_ROOT)
+
 from atlassian import Confluence
 from dotenv import load_dotenv
 
@@ -33,7 +36,7 @@ class Pipeline:
 
     def __init__(
         self,
-        output_base: str = "./output",
+        output_base: str = str(PROJECT_ROOT / "output"),
         include_descendants: bool = True,
         download_all_attachments: bool = False,
         include_document_title: bool = True,
@@ -41,7 +44,7 @@ class Pipeline:
         run_step1: bool = True,
         run_step2: bool = True,
     ):
-        load_dotenv()
+        load_dotenv(PROJECT_ROOT / ".env")
 
         self.confluence_url = os.getenv("CONFLUENCE_URL", "")
         self.confluence_pat = os.getenv("CONFLUENCE_PAT", "")
@@ -136,7 +139,6 @@ class Pipeline:
 
 def main():
     Pipeline(
-        output_base="./output",
         include_descendants=True,
         download_all_attachments=False,
         include_document_title=False,
