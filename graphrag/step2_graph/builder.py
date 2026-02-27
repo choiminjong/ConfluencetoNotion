@@ -10,7 +10,10 @@ import re
 
 from neo4j import GraphDatabase
 
-from graphrag.graph.chunker import chunk_by_sections, recursive_chunk_text
+from graphrag.graph.chunker import TextChunker
+
+SKIP_FIELDS = {"Status", "Space"}
+CHILD_OF_FIELDS = {"Parent Title"}
 
 
 class GraphBuilder:
@@ -26,6 +29,7 @@ class GraphBuilder:
         self.driver = GraphDatabase.driver(uri, auth=auth)
         self.database = database
         self.schema = schema or {}
+        self.chunker = TextChunker()
 
     def close(self):
         self.driver.close()
@@ -34,14 +38,12 @@ class GraphBuilder:
         with self.driver.session(database=self.database) as session:
             return session.run(query, **params)
 
-    @staticmethod
-    def _sanitize_label(name: str) -> str:
+    def _sanitize_label(self, name: str) -> str:
         """필드명을 Neo4j label로 변환한다."""
         label = name.replace(" ", "_").replace("-", "_")
         return re.sub(r"[^A-Za-z0-9_\uAC00-\uD7A3]", "", label)
 
-    @staticmethod
-    def _to_property_key(name: str) -> str:
+    def _to_property_key(self, name: str) -> str:
         """필드명을 Neo4j 속성 키로 변환한다."""
         key = name.lower().replace(" ", "_").replace("-", "_")
         return re.sub(r"[^a-z0-9_]", "", key)
@@ -64,6 +66,8 @@ class GraphBuilder:
             )
 
         for field_name, field_type in self.schema.items():
+            if field_name in SKIP_FIELDS:
+                continue
             if field_type in ("select", "multi_select"):
                 label = self._sanitize_label(field_name)
                 self._run(
@@ -74,15 +78,20 @@ class GraphBuilder:
         print("  제약조건 생성 완료")
 
     def create_page_node(self, row: dict) -> None:
-        """Page 노드를 생성한다. select/multi_select가 아닌 속성을 Page 속성으로 저장."""
+        """Page 노드를 생성한다. SKIP_FIELDS·CHILD_OF_FIELDS·select/multi_select를 제외한 속성을 저장."""
         properties = row.get("properties", {})
+        excluded = SKIP_FIELDS | CHILD_OF_FIELDS
         extra_props: dict[str, str] = {}
 
         for field_name, field_type in self.schema.items():
+            if field_name in excluded:
+                continue
             if field_type not in ("select", "multi_select"):
                 key = self._to_property_key(field_name)
                 value = properties.get(field_name, "")
                 extra_props[key] = value if value is not None else ""
+
+        extra_props["last_edited"] = row.get("last_edited_time", "")
 
         self._run(
             """
@@ -142,17 +151,17 @@ class GraphBuilder:
         title: str,
         content: str,
         sections: list[dict] | None = None,
-        chunk_size: int = 1000,
-        overlap: int = 100,
     ) -> int:
-        """섹션 기반 청킹으로 Content 노드를 생성하고 HAS_CHUNK·NEXT_CHUNK 관계를 연결한다."""
-        if sections:
-            chunks = chunk_by_sections(
-                sections, title, chunk_size=chunk_size, overlap=overlap,
-                min_chunk_size=500,
-            )
+        """H2 그룹핑 기반 청킹으로 Content 노드를 생성하고 HAS_CHUNK·NEXT_CHUNK 관계를 연결한다."""
+        has_section_content = sections and any(
+            s.get("text", "").strip() for s in sections
+        )
+        if has_section_content:
+            chunks = self.chunker.chunk_sections(sections, title)
         elif content and content.strip():
-            raw = recursive_chunk_text(content, chunk_size=chunk_size, overlap=overlap)
+            raw = self.chunker.recursive_chunk(
+                self.chunker.clean_text(content),
+            )
             chunks = [
                 {"text": c, "heading_path": [], "content_type": "text", "page_title": title}
                 for c in raw
@@ -160,6 +169,7 @@ class GraphBuilder:
         else:
             return 0
 
+        chunks = [c for c in chunks if len(c.get("text", "")) >= 100]
         if not chunks:
             return 0
 
@@ -203,20 +213,16 @@ class GraphBuilder:
         return len(chunks)
 
     def create_child_of_relationships(self, records: list[dict]) -> None:
-        """rich_text 필드 값이 다른 페이지 title과 일치하면 CHILD_OF 관계를 생성한다."""
+        """CHILD_OF_FIELDS의 값이 다른 페이지 title과 일치하면 CHILD_OF 관계를 생성한다."""
         title_to_id: dict[str, str] = {}
         for r in records:
             title = r.get("title", "")
             if title:
                 title_to_id[title] = r["page_id"]
 
-        rich_text_fields = [
-            name for name, ftype in self.schema.items() if ftype == "rich_text"
-        ]
-
         for r in records:
             properties = r.get("properties", {})
-            for field_name in rich_text_fields:
+            for field_name in CHILD_OF_FIELDS:
                 value = properties.get(field_name, "")
                 if value and value in title_to_id and title_to_id[value] != r["page_id"]:
                     self._run(
@@ -250,6 +256,8 @@ class GraphBuilder:
             total_chunks += chunks
 
             for field_name, field_type in self.schema.items():
+                if field_name in SKIP_FIELDS:
+                    continue
                 value = properties.get(field_name, "")
                 if not value:
                     continue

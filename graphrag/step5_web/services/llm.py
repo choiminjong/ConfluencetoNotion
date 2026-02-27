@@ -3,6 +3,7 @@
 AWS Bedrock (Claude)과 Azure OpenAI Embedding을 neo4j_graphrag 인터페이스에 맞춰 제공한다.
 """
 
+import asyncio
 import os
 
 import anthropic
@@ -32,7 +33,9 @@ class BedrockLLM(LLMInterface):
         return LLMResponse(content=r.content[0].text)
 
     async def ainvoke(self, input, message_history=None, system_instruction=None):
-        return self.invoke(input, message_history, system_instruction)
+        return await asyncio.to_thread(
+            self.invoke, input, message_history, system_instruction
+        )
 
     def invoke_with_tools(self, input, tools, message_history=None, system_instruction=None):
         anthropic_tools = [

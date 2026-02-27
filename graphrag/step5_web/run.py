@@ -9,6 +9,12 @@ FastAPI + vis-network.js 기반 웹 UI를 시작한다.
     http://localhost:8000
 """
 
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
 import uvicorn
 
 

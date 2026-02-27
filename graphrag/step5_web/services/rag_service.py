@@ -1,7 +1,11 @@
 """Retriever 초기화, Neo4j 연결 관리.
 
-Neo4j 드라이버는 즉시 생성하고, LLM/Embedder/GraphRAG 파이프라인은
-initialize() 호출 시 지연 생성한다. 자격증명이 없어도 그래프 시각화는 동작한다.
+Neo4j 드라이버를 두 종류로 관리한다.
+  - async_driver: FastAPI 엔드포인트에서 non-blocking 쿼리용
+  - sync_driver:  neo4j_graphrag 파이프라인용 (동기 API만 지원)
+
+LLM/Embedder/GraphRAG 파이프라인은 initialize() 호출 시 지연 생성한다.
+자격증명이 없어도 그래프 시각화는 동작한다.
 """
 
 from __future__ import annotations
@@ -17,7 +21,8 @@ from graphrag.web.config import (
 
 logger = logging.getLogger(__name__)
 
-driver = neo4j.GraphDatabase.driver(NEO4J_URI, auth=NEO4J_AUTH)
+async_driver = neo4j.AsyncGraphDatabase.driver(NEO4J_URI, auth=NEO4J_AUTH)
+sync_driver = neo4j.GraphDatabase.driver(NEO4J_URI, auth=NEO4J_AUTH)
 
 tools_retriever = None
 graphrag_list = None
@@ -35,7 +40,7 @@ def initialize():
         NEO4J_DB,
     )
     from graphrag.web.services.llm import AzureOpenAIEmbeddings, BedrockLLM
-    from graphrag.retriever.rag_pipeline import build_pipeline
+    from graphrag.retriever.rag_pipeline import RAGPipeline
 
     llm = BedrockLLM(
         model_name=BEDROCK_MODEL_ID,
@@ -44,9 +49,10 @@ def initialize():
     )
     embedder = AzureOpenAIEmbeddings(model=EMBEDDING_MODEL)
 
-    tools_retriever, graphrag_list, graphrag_summary = build_pipeline(
-        driver=driver,
+    pipeline = RAGPipeline(
+        driver=sync_driver,
         llm=llm,
         embedder=embedder,
         database=NEO4J_DB,
     )
+    tools_retriever, graphrag_list, graphrag_summary = pipeline.build()

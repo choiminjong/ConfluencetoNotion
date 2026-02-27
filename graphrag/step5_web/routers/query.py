@@ -1,5 +1,6 @@
 """POST /query - GraphRAG 질의 처리."""
 
+import asyncio
 import logging
 import re
 import time
@@ -31,6 +32,11 @@ class QueryResponse(BaseModel):
     cypher_query: str = ""
 
 
+def _run_search(active_rag, query_text: str):
+    """동기 RAG 검색을 스레드 풀에서 실행하기 위한 래퍼."""
+    return active_rag.search(query_text=query_text, return_context=True)
+
+
 @router.post("/query", response_model=QueryResponse)
 async def query_graphrag(req: QueryRequest):
     try:
@@ -47,7 +53,7 @@ async def query_graphrag(req: QueryRequest):
         cypher_capture.pop()
 
         start = time.time()
-        result = active_rag.search(query_text=query_with_k, return_context=True)
+        result = await asyncio.to_thread(_run_search, active_rag, query_with_k)
         elapsed = round(time.time() - start, 1)
         captured_cypher = cypher_capture.pop()
 

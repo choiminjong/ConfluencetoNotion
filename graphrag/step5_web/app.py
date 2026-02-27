@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 
 from graphrag.web.config import NEO4J_DB, NEO4J_URI
 from graphrag.web.routers import graph, health, query
-from graphrag.web.services.rag_service import driver, initialize
+from graphrag.web.services.rag_service import async_driver, sync_driver, initialize
 
 
 @asynccontextmanager
@@ -34,7 +34,8 @@ async def lifespan(app: FastAPI):
             e,
         )
     yield
-    driver.close()
+    await async_driver.close()
+    sync_driver.close()
 
 
 app = FastAPI(title="Confluence GraphRAG", lifespan=lifespan)

@@ -109,9 +109,13 @@ class NotionClient:
         return blocks
 
     def extract_page_properties(self, page: dict) -> dict:
-        """페이지 객체에서 DB 속성을 추출한다."""
+        """페이지 객체에서 DB 속성과 시스템 필드를 추출한다."""
         props = page.get("properties", {})
-        result = {"page_id": page["id"]}
+        result = {
+            "page_id": page["id"],
+            "notion_url": page.get("url", ""),
+            "last_edited_time": page.get("last_edited_time", ""),
+        }
 
         for name, prop in props.items():
             prop_type = prop.get("type", "")
