@@ -33,8 +33,8 @@ _UNICODE_ESC_RE = re.compile(r"\\u([0-9a-fA-F]{4})")
 _EMPTY_HEADING_RE = re.compile(r"^#{1,6}\s*$\n?", re.MULTILINE)
 
 _ALERT_RE = re.compile(
-    r"^> \[!(TIP|WARNING|NOTE|CAUTION|IMPORTANT)\]\s*\n"
-    r"((?:^>.*\n?)+)",
+    r"^\s*> \[!(TIP|WARNING|NOTE|CAUTION|IMPORTANT)\]\s*\n"
+    r"((?:^\s*>.*\n?)+)",
     re.MULTILINE,
 )
 
@@ -160,7 +160,7 @@ def convert_alerts_to_callouts(markdown: str) -> str:
 
         stripped_lines: list[str] = []
         for line in body_lines:
-            stripped_lines.append(re.sub(r"^>\s?", "", line))
+            stripped_lines.append(re.sub(r"^\s*>\s?", "", line))
         body_text = "\n".join(stripped_lines)
 
         details_blocks: list[str] = []
@@ -176,7 +176,7 @@ def convert_alerts_to_callouts(markdown: str) -> str:
 
         content_parts: list[str] = []
         for line in remaining.splitlines():
-            stripped = re.sub(r"^###?\s*", "", line)
+            stripped = re.sub(r"^#{1,6}\s*", "", line)
             if stripped.strip():
                 content_parts.append(stripped.strip())
 
