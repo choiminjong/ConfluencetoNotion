@@ -1,0 +1,7 @@
+﻿v0.9.0: 테이블 이미지 링크, rowspan/colspan 오버라이드 분리, 문서 업데이트
+
+- link_table_images: 테이블 셀 자리표시자를 이미지 블록 앵커 링크로 자동 교체
+- _pad_with_content: 패키지 직접 수정 대신 오버라이드로 rowspan/colspan 셀 내용 복제
+- table_converter.py 원상복구 (패키지 원본 유지 규칙 준수)
+- md_preprocessor: rowspan/colspan 2D 그리드 병합 지원
+- migration-spec.md 문서 보완, graphrag-schema.md 신규

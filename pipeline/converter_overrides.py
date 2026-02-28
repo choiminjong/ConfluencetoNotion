@@ -11,7 +11,45 @@ from urllib.parse import unquote
 from bs4 import Tag
 from tabulate import tabulate
 
-from confluence_markdown_exporter.utils.table_converter import pad
+from confluence_markdown_exporter.utils.table_converter import _get_int_attr
+
+
+# ============================================================
+# Table 오버라이드 — rowspan/colspan 셀 내용 복제
+# ============================================================
+
+def _pad_with_content(rows: list[list[Tag]]) -> list[list[Tag]]:
+    """rowspan/colspan 셀을 빈 셀 대신 원본 셀 내용으로 복제한다.
+
+    패키지 원본 pad()는 병합 영역을 빈 <td>로 채우지만,
+    Notion 테이블에서는 병합을 지원하지 않으므로 원본 내용을 반복하는 것이 가독성에 유리하다.
+    """
+    padded: list[list[Tag]] = []
+    occ: dict[tuple[int, int], Tag] = {}
+    for r, row in enumerate(rows):
+        if not row:
+            continue
+        cur: list[Tag] = []
+        c = 0
+        for cell in row:
+            while (r, c) in occ:
+                cur.append(occ.pop((r, c)))
+                c += 1
+            rs = _get_int_attr(cell, "rowspan", "1")
+            cs = _get_int_attr(cell, "colspan", "1")
+            cur.append(cell)
+            if cs > 1:
+                cur.extend(cell for _ in range(1, cs))
+            for i in range(rs):
+                for j in range(cs):
+                    if i or j:
+                        occ[(r + i, c + j)] = cell
+            c += cs
+        while (r, c) in occ:
+            cur.append(occ.pop((r, c)))
+            c += 1
+        padded.append(cur)
+    return padded
 
 
 # ============================================================
@@ -107,10 +145,57 @@ class TableOverride:
         result = result.replace("****", "**<br>**")
         return result
 
+    @staticmethod
+    def _display_width(text: str) -> int:
+        """비례 폰트 근사 표시 폭을 반환한다. CJK/한글은 2, 나머지는 1."""
+        import unicodedata
+        w = 0
+        for ch in text:
+            ea = unicodedata.east_asian_width(ch)
+            w += 2 if ea in ("W", "F") else 1
+        return w
+
+    def _inner_table_to_inline(self, table_tag: Tag) -> str:
+        """내부 테이블을 [행] 형태의 정렬된 인라인 텍스트로 변환한다.
+
+        Notion 테이블 셀은 중첩 테이블을 지원하지 않으므로,
+        내부 테이블의 행/열 구조를 텍스트로 근사 표현한다.
+        구분자로 │(U+2502)를 사용하여 마크다운 파이프 테이블과 충돌을 방지한다.
+        각 열의 최대 폭에 맞춰 공백 패딩으로 정렬을 시도한다.
+        """
+        rows = table_tag.find_all("tr")
+        if not rows:
+            return ""
+        cells_per_row = [
+            [c.get_text(" ", strip=True).replace("|", "\u2502") for c in tr.find_all(["td", "th"])]
+            for tr in rows
+        ]
+        cells_per_row = [r for r in cells_per_row if any(r)]
+        if not cells_per_row:
+            return ""
+
+        max_cols = max(len(r) for r in cells_per_row)
+        col_widths = [0] * max_cols
+        for r in cells_per_row:
+            for ci, cell in enumerate(r):
+                col_widths[ci] = max(col_widths[ci], self._display_width(cell))
+
+        lines = []
+        for r in cells_per_row:
+            padded = []
+            for ci in range(max_cols):
+                cell = r[ci] if ci < len(r) else ""
+                pad = col_widths[ci] - self._display_width(cell)
+                padded.append(cell + " " * max(pad, 0))
+            lines.append("[ " + " \u2502 ".join(padded) + " ]")
+        return "<br>".join(lines)
+
     def convert(self) -> str:
         """테이블 전체를 마크다운으로 변환한다."""
-        if self.el.find("table"):
-            return "\n\n" + str(self.el) + "\n\n"
+        for inner in self.el.find_all("table", recursive=True):
+            if inner is self.el:
+                continue
+            inner.replace_with(self._inner_table_to_inline(inner))
 
         extracted_images = self.extract_images()
 
@@ -122,7 +207,7 @@ class TableOverride:
         if not rows:
             return ""
 
-        padded_rows = pad(rows)
+        padded_rows = _pad_with_content(rows)
         converted = [[self.cell_to_text(cell) for cell in row] for row in padded_rows]
 
         has_header = all(cell.name == "th" for cell in rows[0])

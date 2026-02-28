@@ -218,7 +218,19 @@ def convert_list_headings(markdown: str) -> str:
 
 
 def convert_html_tables(markdown: str) -> str:
-    """Markdown 내 잔존 HTML <table> 블록을 pipe 테이블로 변환한다."""
+    """Markdown 내 잔존 HTML <table> 블록을 pipe 테이블로 변환한다.
+
+    rowspan/colspan 병합 셀은 원본 내용을 반복 복제하여 병합 관계를 근사 표현한다.
+    """
+
+    def _get_span(cell, attr: str) -> int:
+        val = cell.get(attr, "1")
+        if isinstance(val, list):
+            val = val[0] if val else "1"
+        try:
+            return max(1, int(str(val)))
+        except (ValueError, TypeError):
+            return 1
 
     def _table_to_pipe(m: re.Match) -> str:
         soup = BeautifulSoup(m.group(0), "html.parser")
@@ -226,18 +238,32 @@ def convert_html_tables(markdown: str) -> str:
         if not table:
             return m.group(0)
 
-        rows: list[list[str]] = []
+        # rowspan/colspan을 반복 복제하여 2D 그리드로 확장
+        grid: dict[tuple[int, int], str] = {}
+        r = 0
         for tr in table.find_all("tr"):
-            cells = tr.find_all(["td", "th"])
-            rows.append([c.get_text(" ", strip=True) for c in cells])
+            c = 0
+            for cell in tr.find_all(["td", "th"]):
+                while (r, c) in grid:
+                    c += 1
+                text = cell.get_text(" ", strip=True)
+                rs = _get_span(cell, "rowspan")
+                cs = _get_span(cell, "colspan")
+                for di in range(rs):
+                    for dj in range(cs):
+                        grid[(r + di, c + dj)] = text
+                c += cs
+            r += 1
 
-        if not rows:
+        if not grid:
             return m.group(0)
 
-        col_count = max(len(r) for r in rows)
-        for row in rows:
-            while len(row) < col_count:
-                row.append("")
+        max_row = max(rr for rr, _ in grid) + 1
+        max_col = max(cc for _, cc in grid) + 1
+        rows = [
+            [grid.get((ri, ci), "") for ci in range(max_col)]
+            for ri in range(max_row)
+        ]
 
         header = rows[0]
         body = rows[1:] if len(rows) > 1 else []

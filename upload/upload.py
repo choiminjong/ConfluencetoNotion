@@ -6,10 +6,12 @@
 
 import json
 import mimetypes
+import re
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import unquote
 
 import requests
 import urllib3
@@ -430,6 +432,124 @@ class NotionUploader:
             )
 
     # ------------------------------------------------------------------
+    # Table-Image Linking
+    # ------------------------------------------------------------------
+
+    _CLIP_RE = re.compile(r"📎\s*(.+)")
+
+    def _get_all_children(self, block_id: str) -> list[dict]:
+        """페이지의 전체 블록 트리를 평탄화하여 반환한다."""
+        results: list[dict] = []
+        start_cursor: str | None = None
+
+        while True:
+            params: dict = {"page_size": 100}
+            if start_cursor:
+                params["start_cursor"] = start_cursor
+            resp = self.api(
+                "GET",
+                f"{self.BASE}/blocks/{block_id}/children",
+                headers=self.headers,
+                params=params,
+            )
+            data = resp.json()
+            for block in data.get("results", []):
+                results.append(block)
+                if block.get("has_children"):
+                    results.extend(self._get_all_children(block["id"]))
+            if not data.get("has_more"):
+                break
+            start_cursor = data.get("next_cursor")
+
+        return results
+
+    @staticmethod
+    def _block_text(block: dict) -> str:
+        """블록의 rich_text 전체를 단일 문자열로 추출한다."""
+        btype = block.get("type", "")
+        rich = block.get(btype, {}).get("rich_text") or block.get(btype, {}).get("cells")
+        if not rich:
+            return ""
+        if isinstance(rich, list) and rich and isinstance(rich[0], list):
+            return " ".join(
+                seg.get("plain_text", "") for cell in rich for seg in cell
+            )
+        return " ".join(seg.get("plain_text", "") for seg in rich)
+
+    @staticmethod
+    def _extract_image_filename(block: dict) -> str | None:
+        """image 블록에서 파일명을 추출한다."""
+        btype = block.get("type")
+        if btype != "image":
+            return None
+        img = block.get("image", {})
+        url = ""
+        if img.get("type") == "file":
+            url = img.get("file", {}).get("url", "")
+        elif img.get("type") == "external":
+            url = img.get("external", {}).get("url", "")
+        elif img.get("type") == "file_upload":
+            url = img.get("file_upload", {}).get("url", "") or img.get("name", "")
+        if not url:
+            return None
+        raw = unquote(url.rsplit("/", 1)[-1])
+        return raw.split("?")[0]
+
+    def link_table_images(self, page_id: str) -> None:
+        """테이블 셀 안의 📎 자리표시자를 실제 이미지 블록 앵커 링크로 교체한다."""
+        all_blocks = self._get_all_children(page_id)
+
+        img_map: dict[str, str] = {}
+        for block in all_blocks:
+            fname = self._extract_image_filename(block)
+            if fname:
+                img_map[fname] = block["id"]
+
+        if not img_map:
+            return
+
+        page_url_id = page_id.replace("-", "")
+        linked = 0
+
+        for block in all_blocks:
+            if block.get("type") != "table_row":
+                continue
+
+            cells = block.get("table_row", {}).get("cells", [])
+            patched = False
+
+            for cell in cells:
+                for seg in cell:
+                    text = seg.get("plain_text", "")
+                    m = self._CLIP_RE.match(text)
+                    if not m:
+                        continue
+                    clip_name = m.group(1).strip()
+                    target_id = img_map.get(clip_name)
+                    if not target_id:
+                        continue
+                    anchor = target_id.replace("-", "")
+                    link_url = f"https://www.notion.so/{page_url_id}#{anchor}"
+                    if "text" in seg:
+                        seg["text"]["link"] = {"url": link_url}
+                    patched = True
+
+            if patched:
+                try:
+                    self.api(
+                        "PATCH",
+                        f"{self.BASE}/blocks/{block['id']}",
+                        headers=self.headers,
+                        json={"table_row": {"cells": cells}},
+                    )
+                    linked += 1
+                except Exception as e:
+                    print(f"  WARN: table_row 링크 패치 실패: {e}")
+
+        if linked:
+            print(f"  Linked {linked} table rows to images")
+
+    # ------------------------------------------------------------------
     # Page Upload
     # ------------------------------------------------------------------
 
@@ -477,6 +597,11 @@ class NotionUploader:
         except Exception:
             self._archive_page(page_id)
             raise
+
+        try:
+            self.link_table_images(page_id)
+        except Exception as e:
+            print(f"  WARN: link_table_images 실패 (페이지는 정상 업로드됨): {e}")
 
         print(f"  Done: https://notion.so/{page_id.replace('-', '')}")
         return page_id
