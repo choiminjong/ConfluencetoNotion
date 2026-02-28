@@ -56,8 +56,8 @@ class UploadRunner:
     def select_folder(self) -> Path | None:
         """업로드할 output 하위 폴더를 선택한다."""
         if not self.OUTPUT_BASE.exists():
-            self.OUTPUT_BASE.mkdir(parents=True, exist_ok=True)
-            print(f"output 폴더를 생성했습니다: {self.OUTPUT_BASE}")
+            print(f"ERROR: output 폴더가 없습니다: {self.OUTPUT_BASE}")
+            return None
 
         folders = sorted(
             [d for d in self.OUTPUT_BASE.iterdir() if d.is_dir()],

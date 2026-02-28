@@ -67,6 +67,8 @@ class Pipeline:
 
     def resolve_run_dir(self) -> str:
         """루트 페이지의 space_key를 조회하여 실행 폴더 경로를 결정한다."""
+        Path(self.output_base).mkdir(parents=True, exist_ok=True)
+
         client = Confluence(url=self.confluence_url, token=self.confluence_pat)
         root_id = self.page_ids[0]
         page = client.get_page_by_id(root_id, expand="space")

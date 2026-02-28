@@ -1,0 +1,5 @@
+﻿fix: output 폴더 자동 생성을 pipeline/run.py로 이동
+
+- pipeline/run.py: resolve_run_dir()에서 output_base 폴더 자동 생성
+- upload/run.py: 자동 생성 제거, 원래 에러 메시지 복원
+- doc/release/v0.9.0.md: 변경 위치 반영
