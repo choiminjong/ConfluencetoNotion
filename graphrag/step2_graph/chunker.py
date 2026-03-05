@@ -102,6 +102,8 @@ class TextChunker:
                 if current:
                     chunks.append(current.strip())
 
+                # 오버랩: 앞 청크의 마지막 ov글자를 다음 청크 앞에 붙여
+                # 청크 경계에서 문맥이 끊기는 것을 방지한다.
                 if ov > 0 and len(chunks) > 1:
                     overlapped: list[str] = [chunks[0]]
                     for i in range(1, len(chunks)):
@@ -143,6 +145,8 @@ class TextChunker:
         buf_paths: list[list[str]] = []
         buf_types: list[str] = []
 
+        # 클로저: 외부 변수 buf_texts, buf_paths, buf_types, chunks를 캡처하여
+        # 현재 버퍼에 쌓인 텍스트를 하나의 청크(또는 recursive 분할)로 확정한다.
         def _flush():
             if not buf_texts:
                 return
@@ -263,6 +267,8 @@ class TextChunker:
         current_path: list[str] = []
         current_types: list[str] = []
 
+        # 클로저: current_texts, current_path, current_types를 캡처하여
+        # 같은 H2 아래에 모인 하위 섹션들을 하나의 그룹으로 확정한다.
         def _flush_group():
             if not current_texts:
                 return

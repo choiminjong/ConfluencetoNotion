@@ -2,8 +2,8 @@
 
 from fastapi import APIRouter
 
-from graphrag.web.config import BEDROCK_MODEL_ID, NEO4J_DB
-from graphrag.web.services.rag_service import async_driver
+from graphrag.step5_web.config import BEDROCK_MODEL_ID, NEO4J_DB
+from graphrag.step5_web.services.rag_service import async_driver
 
 router = APIRouter()
 

@@ -10,7 +10,7 @@ import re
 
 from neo4j import GraphDatabase
 
-from graphrag.graph.chunker import TextChunker
+from graphrag.step2_graph.chunker import TextChunker
 
 SKIP_FIELDS = {"Status", "Space"}
 CHILD_OF_FIELDS = {"Parent Title"}

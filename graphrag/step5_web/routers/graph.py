@@ -8,8 +8,8 @@ GET /analytics      -- 그래프 통계 (degree, 분포 등)
 
 from fastapi import APIRouter, HTTPException, Query
 
-from graphrag.web.config import NEO4J_DB
-from graphrag.web.services.rag_service import async_driver
+from graphrag.step5_web.config import NEO4J_DB
+from graphrag.step5_web.services.rag_service import async_driver
 
 router = APIRouter()
 

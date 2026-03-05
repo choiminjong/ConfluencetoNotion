@@ -311,8 +311,10 @@ h1 { font-size: 20px; color: #60a5fa; margin-bottom: 4px; }
 .tab-btn.active { background: #3b82f6; color: #fff; }
 .tab-btn:hover:not(.active) { color: #94a3b8; }
 
-.tab-content { display: none; flex: 1; overflow-y: auto; }
+.tab-content { display: none; flex: 1; overflow: hidden; min-height: 0; }
 .tab-content.active { display: flex; flex-direction: column; }
+.query-input-section { flex-shrink: 0; }
+.query-results-section { flex: 1; overflow-y: auto; min-height: 0; }
 
 /* Query Tab */
 .mode-toggle {
@@ -388,7 +390,8 @@ textarea::placeholder { color: #475569; }
 }
 .answer-label { font-weight: 600; color: #3b82f6; margin-bottom: 6px; font-size: 12px; }
 .answer-content { color: #e2e8f0; line-height: 1.7; font-size: 13px; }
-.answer-content a { color: #60a5fa; text-decoration: none; }
+.answer-content a { color: #60a5fa; text-decoration: none; border-bottom: 1px dashed #60a5fa40; transition: all 0.2s; }
+.answer-content a:hover { color: #93c5fd; border-bottom-color: #93c5fd; }
 .answer-content strong { color: #f8fafc; }
 .answer-content ul, .answer-content ol { margin-left: 18px; margin-bottom: 8px; }
 .answer-content li { margin-bottom: 3px; }
@@ -416,6 +419,31 @@ textarea::placeholder { color: #475569; }
   overflow-y: auto;
   display: none;
 }
+
+.domain-btn-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.domain-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid #334155;
+  background: #1e293b;
+  color: #60a5fa;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.domain-btn:hover { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+.streaming-cursor::after {
+  content: '▋';
+  animation: blink 0.7s step-end infinite;
+  color: #3b82f6;
+}
+@keyframes blink { 50% { opacity: 0; } }
 
 /* Analytics Tab */
 .analytics-grid {
@@ -525,7 +553,7 @@ textarea::placeholder { color: #475569; }
 <div class="container">
   <div class="left-panel">
     <h1>Confluence GraphRAG</h1>
-    <div class="subtitle">Neo4j Knowledge Graph + AI Search</div>
+    <div class="subtitle">Neo4j Knowledge Graph + AI Search <span style="font-size:9px;color:#475569">v2</span></div>
 
     <div class="tab-bar">
       <button class="tab-btn active" onclick="switchTab('query')">Query</button>
@@ -534,34 +562,34 @@ textarea::placeholder { color: #475569; }
 
     <!-- Query Tab -->
     <div class="tab-content active" id="tab-query">
-      <div class="mode-toggle">
-        <button class="mode-btn active" id="modeSummary" onclick="setMode('summary')">Summary</button>
-        <button class="mode-btn" id="modeList" onclick="setMode('list')">Documents</button>
-      </div>
-      <textarea id="question" rows="2" placeholder="Ask about your technical documents..."></textarea>
-      <div class="input-row">
-        <select class="topk-select" id="topK">
-          <option value="1">Top 1</option>
-          <option value="3" selected>Top 3</option>
-          <option value="5">Top 5</option>
-          <option value="10">Top 10</option>
-        </select>
-        <button class="ask-btn" id="askButton" onclick="askQuestion()">Search</button>
+      <div class="query-input-section">
+        <textarea id="question" rows="2" placeholder="Ask about your technical documents..."></textarea>
+        <div class="input-row">
+          <select class="topk-select" id="topK">
+            <option value="1">Top 1</option>
+            <option value="3" selected>Top 3</option>
+            <option value="5">Top 5</option>
+            <option value="10">Top 10</option>
+          </select>
+          <button class="ask-btn" id="askButton" onclick="askQuestion()">Search</button>
+        </div>
       </div>
 
-      <div class="example-queries" id="exampleQueries">
-        <h3>Example Queries</h3>
-        <div class="example-query" onclick="setQuestion('Jira 관련 문서를 알려줘')">Jira 관련 문서를 알려줘</div>
-        <div class="example-query" onclick="setQuestion('CI/CD 파이프라인 설정 방법')">CI/CD 파이프라인 설정 방법</div>
-        <div class="example-query" onclick="setQuestion('도메인별 문서 개수')">도메인별 문서 개수</div>
-        <div class="example-query" onclick="setQuestion('토픽별 문서 분류')">토픽별 문서 분류</div>
-      </div>
+      <div class="query-results-section">
+        <div class="example-queries" id="exampleQueries">
+          <h3>Example Queries</h3>
+          <div class="example-query" onclick="setQuestion('Jira 관련 문서를 알려줘')">Jira 관련 문서를 알려줘</div>
+          <div class="example-query" onclick="setQuestion('CI/CD 파이프라인 설정 방법')">CI/CD 파이프라인 설정 방법</div>
+          <div class="example-query" onclick="setQuestion('사용자 추가 방법 알려줘')">사용자 추가 방법 알려줘</div>
+          <div class="example-query" onclick="setQuestion('토픽별 문서 분류')">토픽별 문서 분류</div>
+        </div>
 
-      <div class="answer-box" id="answerBox">
-        <div class="answer-label">Answer</div>
-        <div class="answer-content" id="answer"></div>
-        <div class="info-box" id="infoBox"></div>
-        <div class="cypher-box" id="cypherBox"></div>
+        <div class="answer-box" id="answerBox">
+          <div class="answer-label">Answer</div>
+          <div class="answer-content" id="answer"></div>
+          <div class="domain-btn-container" id="domainButtons"></div>
+          <div class="info-box" id="infoBox"></div>
+        </div>
       </div>
     </div>
 
@@ -1230,45 +1258,26 @@ function toggleHubDim() {
 }
 
 /* ── Query ── */
-async function askQuestion() {
-  const question = document.getElementById('question').value.trim();
+let lastQuestion = '';
+
+async function askQuestion(selectedDomain) {
+  const question = selectedDomain ? lastQuestion : document.getElementById('question').value.trim();
   if (!question) return;
+  lastQuestion = question;
 
   document.getElementById('exampleQueries').classList.add('hidden');
   document.getElementById('askButton').disabled = true;
   document.getElementById('loading').classList.add('active');
   document.getElementById('answerBox').style.display = 'none';
+  document.getElementById('answer').innerHTML = '';
+  document.getElementById('domainButtons').innerHTML = '';
+  document.getElementById('infoBox').innerHTML = '';
+  resetHighlight();
+
+  const topK = parseInt(document.getElementById('topK').value);
 
   try {
-    const topK = parseInt(document.getElementById('topK').value);
-    const resp = await fetch('/query', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question, top_k: topK, mode: currentMode })
-    });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
-
-    document.getElementById('answer').innerHTML = marked.parse(data.answer);
-
-    const modeLabel = currentMode === 'summary' ? 'Summary' : 'Documents';
-    let infoHtml = `Mode: <b>${modeLabel}</b> | Retriever: <b>${data.retriever_used}</b> | k: <b>${topK}</b>`;
-    if (data.elapsed_sec !== undefined) {
-      const sec = data.elapsed_sec;
-      infoHtml += `<br>Time: <b>${sec >= 60 ? Math.floor(sec/60) + 'm ' + (sec%60).toFixed(1) + 's' : sec.toFixed(1) + 's'}</b>`;
-    }
-    document.getElementById('infoBox').innerHTML = infoHtml;
-
-    const cypherBox = document.getElementById('cypherBox');
-    if (data.cypher_query) {
-      cypherBox.textContent = data.cypher_query;
-      cypherBox.style.display = 'block';
-    } else {
-      cypherBox.style.display = 'none';
-    }
-
-    document.getElementById('answerBox').style.display = 'block';
-    highlightResults(data.used_nodes, data.used_edges);
+    await askQuestionStream(question, topK, selectedDomain || null);
   } catch (err) {
     alert('Search failed: ' + err.message);
   } finally {
@@ -1277,17 +1286,145 @@ async function askQuestion() {
   }
 }
 
+async function askQuestionStream(question, topK, domain) {
+  document.getElementById('answerBox').style.display = 'block';
+  const answerEl = document.getElementById('answer');
+  answerEl.innerHTML = '';
+  answerEl.classList.add('streaming-cursor');
+  document.getElementById('loading').classList.remove('active');
+
+  let fullText = '';
+  const body = { question, top_k: topK };
+  if (domain) body.domain = domain;
+  console.log('[Stream] requesting:', JSON.stringify(body));
+
+  const resp = await fetch('/query/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  function linkifyRawUrls(html) {
+    return html.replace(
+      /(?<!href=["'])(?<!["'>])(https?:\/\/[^\s<"')\]]+)/g,
+      '<a href="$1" target="_blank" rel="noopener">$1</a>'
+    );
+  }
+
+  function renderMarkdown(text) {
+    return linkifyRawUrls(marked.parse(text));
+  }
+
+  function processSSELine(line) {
+    if (!line.startsWith('data: ')) return;
+    const jsonStr = line.slice(6).trim();
+    if (!jsonStr) return;
+
+    try {
+      const evt = JSON.parse(jsonStr);
+      if (evt.type === 'token') {
+        fullText += evt.content;
+        answerEl.innerHTML = renderMarkdown(fullText);
+      } else if (evt.type === 'done') {
+        answerEl.classList.remove('streaming-cursor');
+
+        const container = document.getElementById('domainButtons');
+        container.innerHTML = '';
+        if (!domain) {
+          let buttons = [];
+
+          if (evt.domains && evt.domains.length > 1) {
+            buttons = evt.domains.map(d => ({ label: d, filter: d }));
+          } else if (evt.page_entries && evt.page_entries.length > 1) {
+            buttons = evt.page_entries.map(e => ({
+              label: e.domain ? `[${e.domain}] ${e.title}` : e.title,
+              filter: e.title
+            }));
+          }
+
+          if (buttons.length === 0 && fullText) {
+            const sectionKeywords = /^(요약|주제|단계|핵심|참고|주요|안내|답변|문서 제목|포인트)/;
+            const titleDomainPairs = [];
+            const boldRe = /\*\*([^*]+)\*\*/g;
+            const domainRe = /도메인:\s*(\S+)/g;
+            let bm;
+            while ((bm = boldRe.exec(fullText)) !== null) {
+              const title = bm[1].trim();
+              if (title.length > 1 && title.length < 60 && !sectionKeywords.test(title)) {
+                titleDomainPairs.push({ title, domain: '' });
+              }
+            }
+            while ((bm = domainRe.exec(fullText)) !== null) {
+              const d = bm[1].trim();
+              const idx = titleDomainPairs.findIndex(p => !p.domain);
+              if (idx >= 0) titleDomainPairs[idx].domain = d;
+            }
+            if (titleDomainPairs.length >= 2) {
+              buttons = titleDomainPairs.map(p => ({
+                label: p.domain ? `[${p.domain}] ${p.title}` : p.title,
+                filter: p.title
+              }));
+            }
+          }
+
+          buttons.forEach(({ label, filter }) => {
+            const btn = document.createElement('button');
+            btn.className = 'domain-btn';
+            btn.textContent = label;
+            btn.onclick = () => askQuestion(filter);
+            container.appendChild(btn);
+          });
+        }
+
+        const modeLabel = evt.mode === 'list' ? 'Documents' : 'Summary';
+        let infoHtml = `Mode: <b>${modeLabel}</b> (auto)`;
+        if (domain) infoHtml += ` | Filter: <b>${domain}</b>`;
+        infoHtml += ` | k: <b>${topK}</b>`;
+        infoHtml += ` | <span style="color:#94a3b8">검색: <b>${(evt.retrieval_sec||0).toFixed(1)}s</b></span>`;
+        infoHtml += ` | <span style="color:#94a3b8">첫 토큰: <b>${(evt.first_token_sec||0).toFixed(1)}s</b></span>`;
+        infoHtml += ` | Total: <b>${(evt.elapsed_sec||0).toFixed(1)}s</b>`;
+        document.getElementById('infoBox').innerHTML = infoHtml;
+
+        console.log('[Stream] done:', { domains: evt.domains, page_titles: evt.page_titles, nodes: evt.used_nodes });
+        highlightResults(evt.used_nodes || [], evt.used_edges || []);
+      } else if (evt.type === 'error') {
+        answerEl.classList.remove('streaming-cursor');
+        answerEl.innerHTML = `<span style="color:#f87171">Error: ${evt.message}</span>`;
+      }
+    } catch (e) {
+      console.warn('SSE parse error:', e, line);
+    }
+  }
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop();
+    for (const line of lines) processSSELine(line);
+  }
+  if (buffer.trim()) processSSELine(buffer);
+  answerEl.classList.remove('streaming-cursor');
+}
+
 function highlightResults(nodeIds, edgeIds) {
-  if (!visNodes || !visEdges) return;
+  if (!visNodes || !visEdges) { console.warn('[Highlight] visNodes/visEdges not ready'); return; }
+  console.log('[Highlight] nodeIds:', nodeIds, 'total graph nodes:', allNodesData.length);
 
   const matched = [];
   nodeIds.forEach(sid => {
+    const parts = sid.split('_');
+    const label = parts[0];
+    const val = parts.slice(1).join('_');
     allNodesData.forEach(nd => {
-      const parts = sid.split('_');
-      const label = parts[0];
-      const val = parts.slice(1).join('_');
       if (nd.label !== label) return;
-      const p = nd.properties;
+      const p = nd.properties || {};
       if (
         (label === 'Page' && (p.page_id === val || p.title === val)) ||
         (label === 'Content' && p.content_id === val) ||
@@ -1296,6 +1433,14 @@ function highlightResults(nodeIds, edgeIds) {
     });
   });
   const matchedSet = new Set(matched);
+  console.log('[Highlight] matched node ids:', matched);
+  if (matchedSet.size === 0) { console.warn('[Highlight] no nodes matched'); return; }
+
+  const connectedToMatched = new Set();
+  allEdgesData.forEach(e => {
+    if (matchedSet.has(e.source)) connectedToMatched.add(e.target);
+    if (matchedSet.has(e.target)) connectedToMatched.add(e.source);
+  });
 
   const nodeBatch = [];
   visNodes.get().forEach(n => {
@@ -1306,15 +1451,25 @@ function highlightResults(nodeIds, edgeIds) {
         id: n.id,
         color: { background: color, border: '#fff' },
         borderWidth: 4,
-        size: baseNodeSize * 1.5,
-        font: { size: 14, color: '#f8fafc', strokeWidth: 2, strokeColor: '#000' },
+        size: baseNodeSize * 1.8,
+        font: { size: 14, color: '#f8fafc', strokeWidth: 3, strokeColor: '#000' },
+        shadow: { enabled: true, size: 20, color: color + '80' },
+      });
+    } else if (connectedToMatched.has(n.id)) {
+      const nd = nodeMap.get(n.id);
+      const color = _domainColor(nd || {});
+      nodeBatch.push({
+        id: n.id,
+        color: { background: color + '60', border: color + '80' },
+        font: { size: 9, color: '#94a3b8' },
+        size: baseNodeSize * 0.7,
       });
     } else {
       nodeBatch.push({
         id: n.id,
-        color: { background: '#334155', border: '#475569' },
-        font: { size: 7, color: '#475569' },
-        size: baseNodeSize * 0.4,
+        color: { background: '#1e293b20', border: '#33415540' },
+        font: { size: 0, color: 'transparent' },
+        size: baseNodeSize * 0.3,
       });
     }
   });
@@ -1323,10 +1478,18 @@ function highlightResults(nodeIds, edgeIds) {
   const edgeBatch = [];
   visEdges.get().forEach(e => {
     const ed = edgeMap.get(e.id);
-    if (ed && matchedSet.has(ed.source) && matchedSet.has(ed.target)) {
-      edgeBatch.push({ id: e.id, color: { color: '#ef4444' }, width: 3, label: ed.relationship });
+    if (ed && (matchedSet.has(ed.source) || matchedSet.has(ed.target)) &&
+        (matchedSet.has(ed.source) || connectedToMatched.has(ed.source)) &&
+        (matchedSet.has(ed.target) || connectedToMatched.has(ed.target))) {
+      const isDirectMatch = matchedSet.has(ed.source) && matchedSet.has(ed.target);
+      edgeBatch.push({
+        id: e.id,
+        color: { color: isDirectMatch ? '#ef4444' : '#475569' },
+        width: isDirectMatch ? 3 : 1.5,
+        label: showEdgeLabels ? ed.relationship : '',
+      });
     } else {
-      edgeBatch.push({ id: e.id, color: { color: '#1e293b' }, width: 0.5, label: '' });
+      edgeBatch.push({ id: e.id, color: { color: '#1e293b20' }, width: 0.3, label: '' });
     }
   });
   visEdges.update(edgeBatch);

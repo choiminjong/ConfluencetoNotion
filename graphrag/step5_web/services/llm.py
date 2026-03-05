@@ -32,6 +32,18 @@ class BedrockLLM(LLMInterface):
         )
         return LLMResponse(content=r.content[0].text)
 
+    def invoke_stream(self, input, message_history=None, system_instruction=None):
+        """토큰을 하나씩 yield하는 동기 제너레이터."""
+        msgs = list(message_history or []) + [{"role": "user", "content": input}]
+        with self.client.messages.stream(
+            model=self.model_name,
+            messages=msgs,
+            system=system_instruction or anthropic.NOT_GIVEN,
+            **self.model_params,
+        ) as stream:
+            for text in stream.text_stream:
+                yield text
+
     async def ainvoke(self, input, message_history=None, system_instruction=None):
         return await asyncio.to_thread(
             self.invoke, input, message_history, system_instruction

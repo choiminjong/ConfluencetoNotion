@@ -56,6 +56,8 @@ class ContentParser:
         current_texts: list[str] = []
         current_block_types: list[str] = []
 
+        # 클로저: 외부 변수 sections, heading_stack, current_texts, current_block_types를
+        # 캡처하여, 현재까지 모인 텍스트를 하나의 섹션으로 확정하고 sections에 추가한다.
         def _flush() -> None:
             text = self._clean_media_noise("\n".join(current_texts)).strip()
             if not text and not heading_stack:

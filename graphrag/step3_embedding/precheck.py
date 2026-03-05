@@ -1,10 +1,10 @@
-"""Retriever 실행 전 사전 점검 스크립트.
+"""STEP 3 실행 전 사전 점검 스크립트.
 
 Neo4j 연결, Azure OpenAI 임베딩, AWS Bedrock LLM을 각각 테스트하여
-retriever.run 실행 가능 여부를 판단한다.
+step3_embedding.run 실행 가능 여부를 판단한다.
 
 사용법:
-    python -m graphrag.retriever.precheck
+    python -m graphrag.step3_embedding.precheck
 
 설정 (.env):
     NEO4J_URI / NEO4J_USERNAME / NEO4J_PASSWORD / NEO4J_DB
@@ -75,7 +75,7 @@ class RetrieverPrecheck:
 
         if all(results.values()):
             print("\n  모든 점검 통과!")
-            print("  다음 단계: python -m graphrag.retriever.run")
+            print("  다음 단계: python -m graphrag.step3_embedding.run")
         else:
             failed = [k for k, v in results.items() if not v]
             print(f"\n  실패 항목: {', '.join(failed)}")
@@ -143,7 +143,7 @@ class RetrieverPrecheck:
             print("  AZURE_OPENAI_ENDPOINT / API_KEY 가 설정되지 않았습니다.")
             return False
 
-        from graphrag.web.services.llm import AzureOpenAIEmbeddings
+        from graphrag.step5_web.services.llm import AzureOpenAIEmbeddings
 
         embedder = AzureOpenAIEmbeddings(model=self.embedding_model)
         try:
@@ -164,7 +164,7 @@ class RetrieverPrecheck:
             print("  AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY 가 설정되지 않았습니다.")
             return False
 
-        from graphrag.web.services.llm import BedrockLLM
+        from graphrag.step5_web.services.llm import BedrockLLM
 
         llm = BedrockLLM(
             model_name=self.bedrock_model,

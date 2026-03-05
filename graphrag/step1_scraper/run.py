@@ -5,7 +5,7 @@ Notion DB 스키마를 자동 조회하고, 모든 페이지의 속성과 블록
 DB 필드명을 하드코딩하지 않으므로 어떤 Notion DB에서도 동작한다.
 
 사용법:
-    python -m graphrag.scraper.run
+    python -m graphrag.step1_scraper.run
 
 설정 (.env):
     NOTION_TOKEN        - Notion Integration 토큰
@@ -29,8 +29,8 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path[0] = str(PROJECT_ROOT)
 
-from graphrag.scraper.content_parser import ContentParser
-from graphrag.scraper.notion_client import NotionClient
+from graphrag.step1_scraper.content_parser import ContentParser
+from graphrag.step1_scraper.notion_client import NotionClient
 
 
 class NotionScraper:
@@ -70,7 +70,7 @@ class NotionScraper:
         print(f"  총 {len(records)}개 페이지, 본문 있는 페이지: {content_count}개")
         print(f"  총 섹션 수: {section_count}개")
         print(f"\n{'=' * 60}")
-        print(f"  다음 단계: python -m graphrag.graph.run")
+        print(f"  다음 단계: python -m graphrag.step2_graph.run")
         print(f"{'=' * 60}")
 
         return output_path
@@ -81,6 +81,8 @@ class NotionScraper:
 
         for i, page in enumerate(pages, 1):
             props = self.client.extract_page_properties(page)
+            # pop(): 딕셔너리에서 꺼내면서 삭제. 별도 필드로 승격시키고
+            # props에는 나머지 DB 속성만 남긴다.
             page_id = props.pop("page_id", "")
             title = props.pop("title", "Untitled")
             notion_url = props.pop("notion_url", "")

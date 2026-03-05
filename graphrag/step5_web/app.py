@@ -15,9 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from graphrag.web.config import NEO4J_DB, NEO4J_URI
-from graphrag.web.routers import graph, health, query
-from graphrag.web.services.rag_service import async_driver, sync_driver, initialize
+from graphrag.step5_web.config import NEO4J_DB, NEO4J_URI
+from graphrag.step5_web.routers import graph, health, query
+from graphrag.step5_web.services.rag_service import async_driver, initialize, sync_driver
 
 
 @asynccontextmanager
@@ -56,9 +56,16 @@ app.include_router(health.router)
 
 @app.get("/")
 async def root():
-    return FileResponse(os.path.join(static_dir, "index.html"))
+    return FileResponse(
+        os.path.join(static_dir, "index.html"),
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("graphrag.web.app:app", host="0.0.0.0", port=8000)
+    uvicorn.run("graphrag.step5_web.app:app", host="0.0.0.0", port=8000)
