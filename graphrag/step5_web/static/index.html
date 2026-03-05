@@ -553,7 +553,7 @@ textarea::placeholder { color: #475569; }
 <div class="container">
   <div class="left-panel">
     <h1>Confluence GraphRAG</h1>
-    <div class="subtitle">Neo4j Knowledge Graph + AI Search <span style="font-size:9px;color:#475569">v2</span></div>
+    <div class="subtitle">Neo4j Knowledge Graph + AI Search <span style="font-size:9px;color:#475569">v3</span></div>
 
     <div class="tab-bar">
       <button class="tab-btn active" onclick="switchTab('query')">Query</button>
@@ -1257,11 +1257,26 @@ function toggleHubDim() {
   renderGraph();
 }
 
-/* ── Query ── */
+/* ── Query (3-step drill-down) ── */
 let lastQuestion = '';
+let lastDomain = '';
 
-async function askQuestion(selectedDomain) {
-  const question = selectedDomain ? lastQuestion : document.getElementById('question').value.trim();
+async function askQuestion(opts) {
+  let question, domain = null, pageTitle = null;
+
+  if (typeof opts === 'object' && opts !== null) {
+    question = lastQuestion;
+    domain = opts.domain || null;
+    pageTitle = opts.page_title || null;
+    if (domain) lastDomain = domain;
+  } else if (typeof opts === 'string') {
+    question = lastQuestion;
+    domain = opts;
+    lastDomain = domain;
+  } else {
+    question = document.getElementById('question').value.trim();
+    lastDomain = '';
+  }
   if (!question) return;
   lastQuestion = question;
 
@@ -1277,7 +1292,7 @@ async function askQuestion(selectedDomain) {
   const topK = parseInt(document.getElementById('topK').value);
 
   try {
-    await askQuestionStream(question, topK, selectedDomain || null);
+    await askQuestionStream(question, topK, domain, pageTitle);
   } catch (err) {
     alert('Search failed: ' + err.message);
   } finally {
@@ -1286,7 +1301,7 @@ async function askQuestion(selectedDomain) {
   }
 }
 
-async function askQuestionStream(question, topK, domain) {
+async function askQuestionStream(question, topK, domain, pageTitle) {
   document.getElementById('answerBox').style.display = 'block';
   const answerEl = document.getElementById('answer');
   answerEl.innerHTML = '';
@@ -1296,6 +1311,7 @@ async function askQuestionStream(question, topK, domain) {
   let fullText = '';
   const body = { question, top_k: topK };
   if (domain) body.domain = domain;
+  if (pageTitle) body.page_title = pageTitle;
   console.log('[Stream] requesting:', JSON.stringify(body));
 
   const resp = await fetch('/query/stream', {
@@ -1335,43 +1351,41 @@ async function askQuestionStream(question, topK, domain) {
 
         const container = document.getElementById('domainButtons');
         container.innerHTML = '';
-        if (!domain) {
+        const step = evt.step || 'detail';
+
+        if (step === 'overview') {
           let buttons = [];
-
-          if (evt.domains && evt.domains.length > 1) {
-            buttons = evt.domains.map(d => ({ label: d, filter: d }));
-          } else if (evt.page_entries && evt.page_entries.length > 1) {
-            buttons = evt.page_entries.map(e => ({
-              label: e.domain ? `[${e.domain}] ${e.title}` : e.title,
-              filter: e.title
-            }));
+          if (evt.domains && evt.domains.length >= 2) {
+            buttons = evt.domains.map(d => ({ label: d, filter: { domain: d } }));
           }
-
           if (buttons.length === 0 && fullText) {
             const sectionKeywords = /^(요약|주제|단계|핵심|참고|주요|안내|답변|문서 제목|포인트)/;
-            const titleDomainPairs = [];
             const boldRe = /\*\*([^*]+)\*\*/g;
-            const domainRe = /도메인:\s*(\S+)/g;
             let bm;
             while ((bm = boldRe.exec(fullText)) !== null) {
               const title = bm[1].trim();
               if (title.length > 1 && title.length < 60 && !sectionKeywords.test(title)) {
-                titleDomainPairs.push({ title, domain: '' });
+                buttons.push({ label: title, filter: { domain: title } });
               }
             }
-            while ((bm = domainRe.exec(fullText)) !== null) {
-              const d = bm[1].trim();
-              const idx = titleDomainPairs.findIndex(p => !p.domain);
-              if (idx >= 0) titleDomainPairs[idx].domain = d;
-            }
-            if (titleDomainPairs.length >= 2) {
-              buttons = titleDomainPairs.map(p => ({
-                label: p.domain ? `[${p.domain}] ${p.title}` : p.title,
-                filter: p.title
-              }));
-            }
           }
+          buttons.forEach(({ label, filter }) => {
+            const btn = document.createElement('button');
+            btn.className = 'domain-btn';
+            btn.textContent = label;
+            btn.onclick = () => askQuestion(filter);
+            container.appendChild(btn);
+          });
 
+        } else if (step === 'list') {
+          let buttons = [];
+          if (evt.page_entries && evt.page_entries.length >= 2) {
+            const activeDomain = domain || lastDomain || '';
+            buttons = evt.page_entries.map(e => ({
+              label: e.domain ? `[${e.domain}] ${e.title}` : e.title,
+              filter: { domain: e.domain || activeDomain, page_title: e.title }
+            }));
+          }
           buttons.forEach(({ label, filter }) => {
             const btn = document.createElement('button');
             btn.className = 'domain-btn';
@@ -1381,16 +1395,17 @@ async function askQuestionStream(question, topK, domain) {
           });
         }
 
-        const modeLabel = evt.mode === 'list' ? 'Documents' : 'Summary';
-        let infoHtml = `Mode: <b>${modeLabel}</b> (auto)`;
-        if (domain) infoHtml += ` | Filter: <b>${domain}</b>`;
+        const stepLabels = { overview: 'Overview', list: 'Documents', detail: 'Detail' };
+        let infoHtml = `Step: <b>${stepLabels[step] || step}</b>`;
+        if (pageTitle) infoHtml += ` | 문서: <b>${pageTitle}</b>`;
+        else if (domain) infoHtml += ` | 도메인: <b>${domain}</b>`;
         infoHtml += ` | k: <b>${topK}</b>`;
         infoHtml += ` | <span style="color:#94a3b8">검색: <b>${(evt.retrieval_sec||0).toFixed(1)}s</b></span>`;
         infoHtml += ` | <span style="color:#94a3b8">첫 토큰: <b>${(evt.first_token_sec||0).toFixed(1)}s</b></span>`;
         infoHtml += ` | Total: <b>${(evt.elapsed_sec||0).toFixed(1)}s</b>`;
         document.getElementById('infoBox').innerHTML = infoHtml;
 
-        console.log('[Stream] done:', { domains: evt.domains, page_titles: evt.page_titles, nodes: evt.used_nodes });
+        console.log('[Stream] done:', { step, domains: evt.domains, page_entries: evt.page_entries, nodes: evt.used_nodes });
         highlightResults(evt.used_nodes || [], evt.used_edges || []);
       } else if (evt.type === 'error') {
         answerEl.classList.remove('streaming-cursor');

@@ -1,8 +1,9 @@
 """POST /query, /query/stream - GraphRAG 질의 처리.
 
-2단계 대화형 UX:
-  Step 1 (domain 미지정): 전체 검색 → 도메인 여러 개면 간략 요약 + 도메인 목록 반환
-  Step 2 (domain 지정):   해당 도메인만 상세 답변 (SSE 스트리밍)
+3단계 드릴다운 UX:
+  Step 1 (필터 없음):       전체 검색 → 도메인 2+이면 도메인 요약, 문서 2+이면 문서 목록, 1개면 상세
+  Step 2 (domain 지정):     해당 도메인 내 문서 2+이면 문서 목록, 1개면 상세
+  Step 3 (page_title 지정): 해당 문서의 상세 단계별 답변
 """
 
 import asyncio
@@ -28,6 +29,7 @@ class QueryRequest(BaseModel):
     top_k: int = 3
     mode: str = "summary"
     domain: Optional[str] = None
+    page_title: Optional[str] = None
 
 
 class QueryResponse(BaseModel):
@@ -56,7 +58,7 @@ def _extract_field(content: str, field: str) -> list[str]:
     return results
 
 
-def _extract_from_items(items, domain_filter=None):
+def _extract_from_items(items, domain_filter=None, page_title_filter=None):
     """retriever items에서 도메인, page_id, page_title, context를 추출한다."""
     domains = []
     page_ids = []
@@ -67,6 +69,9 @@ def _extract_from_items(items, domain_filter=None):
         content = str(item.content) if hasattr(item, "content") else ""
 
         if domain_filter and domain_filter.lower() not in content.lower():
+            continue
+
+        if page_title_filter and page_title_filter.lower() not in content.lower():
             continue
 
         context_parts.append(content)
@@ -85,10 +90,12 @@ def _extract_from_items(items, domain_filter=None):
             for m in _RE_UUID.finditer(pid_match.group(1)):
                 page_ids.append(m.group(0))
 
+    unique_pages = list({e["title"]: e for e in page_entries}.values())
+
     return (
         list(dict.fromkeys(domains)),
         list(dict.fromkeys(page_ids)),
-        page_entries,
+        unique_pages,
         "\n\n".join(context_parts),
     )
 
@@ -112,6 +119,29 @@ def _build_prompt(template, context, question):
     )
 
 
+def _select_prompt(req, domains, page_entries, p_overview, p_list, p_detail):
+    """3단계 드릴다운 로직에 따라 프롬프트와 현재 step을 결정한다.
+
+    Returns:
+        (prompt_template, step): step은 "overview" | "list" | "detail"
+    """
+    if req.page_title:
+        return p_detail, "detail"
+
+    if req.domain:
+        if len(page_entries) >= 2:
+            return p_list, "list"
+        return p_detail, "detail"
+
+    if len(domains) >= 2:
+        return p_overview, "overview"
+
+    if len(page_entries) >= 2:
+        return p_list, "list"
+
+    return p_detail, "detail"
+
+
 @router.post("/query", response_model=QueryResponse)
 async def query_graphrag(req: QueryRequest):
     """1회 retrieval + 1회 LLM 호출로 답변을 생성한다."""
@@ -125,13 +155,16 @@ async def query_graphrag(req: QueryRequest):
             raise HTTPException(status_code=500, detail="GraphRAG not initialized")
 
         from graphrag.step4_rag.rag_pipeline import (
+            PROMPT_DETAIL,
             PROMPT_DOMAIN_OVERVIEW,
             PROMPT_LIST,
             PROMPT_SUMMARY,
         )
 
         query_with_k = f"{req.question} (상위 {req.top_k}개만 답변)"
-        if req.domain:
+        if req.page_title:
+            query_with_k = f"{req.question} (문서: {req.page_title}, 상위 {req.top_k}개만 답변)"
+        elif req.domain:
             query_with_k = (
                 f"{req.question} (도메인: {req.domain}, 상위 {req.top_k}개만 답변)"
             )
@@ -144,16 +177,13 @@ async def query_graphrag(req: QueryRequest):
 
         items = retrieval_result.items if hasattr(retrieval_result, "items") else []
         domains, page_ids, page_entries, context_str = _extract_from_items(
-            items, domain_filter=req.domain
+            items, domain_filter=req.domain, page_title_filter=req.page_title
         )
 
-        auto_mode = _auto_detect_mode(req.question)
-        if not req.domain and len(domains) > 1:
-            prompt_tpl = PROMPT_DOMAIN_OVERVIEW
-        elif auto_mode == "list":
-            prompt_tpl = PROMPT_LIST
-        else:
-            prompt_tpl = PROMPT_SUMMARY
+        prompt_tpl, step = _select_prompt(
+            req, domains, page_entries,
+            PROMPT_DOMAIN_OVERVIEW, PROMPT_LIST, PROMPT_DETAIL,
+        )
 
         prompt = _build_prompt(prompt_tpl, context_str, req.question)
 
@@ -161,7 +191,7 @@ async def query_graphrag(req: QueryRequest):
         answer_text = llm_result.content if hasattr(llm_result, "content") else str(llm_result)
 
         elapsed = round(time.time() - start, 1)
-        logger.info("[Query] %s (domain=%s, top_k=%d, mode=%s, elapsed=%ss)", req.question, req.domain, req.top_k, auto_mode, elapsed)
+        logger.info("[Query] %s (domain=%s, page_title=%s, top_k=%d, step=%s, elapsed=%ss)", req.question, req.domain, req.page_title, req.top_k, step, elapsed)
 
         used_nodes = [f"Page_{pid}" for pid in page_ids]
         used_edges = ["HAS_CHUNK"] if used_nodes else []
@@ -193,13 +223,16 @@ async def query_graphrag_stream(req: QueryRequest):
         raise HTTPException(status_code=500, detail="GraphRAG not initialized")
 
     from graphrag.step4_rag.rag_pipeline import (
+        PROMPT_DETAIL,
         PROMPT_DOMAIN_OVERVIEW,
         PROMPT_LIST,
         PROMPT_SUMMARY,
     )
 
     query_with_k = f"{req.question} (상위 {req.top_k}개만 답변)"
-    if req.domain:
+    if req.page_title:
+        query_with_k = f"{req.question} (문서: {req.page_title}, 상위 {req.top_k}개만 답변)"
+    elif req.domain:
         query_with_k = (
             f"{req.question} (도메인: {req.domain}, 상위 {req.top_k}개만 답변)"
         )
@@ -212,16 +245,13 @@ async def query_graphrag_stream(req: QueryRequest):
 
     items = retrieval_result.items if hasattr(retrieval_result, "items") else []
     domains, page_ids, page_entries, context_str = _extract_from_items(
-        items, domain_filter=req.domain
+        items, domain_filter=req.domain, page_title_filter=req.page_title
     )
 
-    auto_mode = _auto_detect_mode(req.question)
-    if not req.domain and len(domains) > 1:
-        prompt_tpl = PROMPT_DOMAIN_OVERVIEW
-    elif auto_mode == "list":
-        prompt_tpl = PROMPT_LIST
-    else:
-        prompt_tpl = PROMPT_SUMMARY
+    prompt_tpl, step = _select_prompt(
+        req, domains, page_entries,
+        PROMPT_DOMAIN_OVERVIEW, PROMPT_LIST, PROMPT_DETAIL,
+    )
 
     prompt = _build_prompt(prompt_tpl, context_str, req.question)
 
@@ -230,8 +260,8 @@ async def query_graphrag_stream(req: QueryRequest):
     retrieval_sec = round(time.time() - start, 1)
 
     logger.info(
-        "[Stream] retrieval done in %.2fs (question=%s, domain=%s, domains=%s, entries=%s, mode=%s)",
-        retrieval_sec, req.question, req.domain, domains, page_entries, auto_mode,
+        "[Stream] retrieval done in %.2fs (question=%s, domain=%s, page_title=%s, domains=%s, entries=%s, step=%s)",
+        retrieval_sec, req.question, req.domain, req.page_title, domains, page_entries, step,
     )
 
     async def event_generator():
@@ -268,7 +298,7 @@ async def query_graphrag_stream(req: QueryRequest):
                     "[Stream] total=%.1fs (retrieval=%.1fs, first_token=%.1fs, llm=%.1fs)",
                     elapsed, retrieval_sec, first_token_sec, llm_sec,
                 )
-                yield f"data: {json.dumps({'type': 'done', 'used_nodes': used_nodes, 'used_edges': used_edges, 'domains': domains, 'page_entries': page_entries, 'mode': auto_mode, 'elapsed_sec': elapsed, 'retrieval_sec': retrieval_sec, 'first_token_sec': first_token_sec, 'llm_sec': llm_sec}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'used_nodes': used_nodes, 'used_edges': used_edges, 'domains': domains, 'page_entries': page_entries, 'step': step, 'elapsed_sec': elapsed, 'retrieval_sec': retrieval_sec, 'first_token_sec': first_token_sec, 'llm_sec': llm_sec}, ensure_ascii=False)}\n\n"
                 break
 
         thread.join(timeout=10)

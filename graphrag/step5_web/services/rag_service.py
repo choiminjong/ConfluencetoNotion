@@ -28,12 +28,13 @@ retriever = None
 graphrag_list = None
 graphrag_summary = None
 graphrag_overview = None
+graphrag_detail = None
 llm_instance = None
 
 
 def initialize():
     """Retriever와 GraphRAG 인스턴스를 생성한다. 앱 lifespan에서 호출."""
-    global retriever, graphrag_list, graphrag_summary, graphrag_overview, llm_instance
+    global retriever, graphrag_list, graphrag_summary, graphrag_overview, graphrag_detail, llm_instance
 
     from graphrag.step5_web.config import (
         AWS_DEFAULT_REGION,
@@ -57,6 +58,6 @@ def initialize():
         embedder=embedder,
         database=NEO4J_DB,
     )
-    retriever, graphrag_list, graphrag_summary, graphrag_overview, llm_instance = (
+    retriever, graphrag_list, graphrag_summary, graphrag_overview, graphrag_detail, llm_instance = (
         pipeline.build()
     )
